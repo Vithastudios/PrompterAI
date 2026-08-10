@@ -82,9 +82,8 @@ class SubscriptionManager: ObservableObject {
             Task {
                 await transaction.finish()
             }
-        case .failed(let error):
-            errorMessage = "Recibo invalido: \(error.localizedDescription)"
-            isPremium = false
+case .failed(let error):
+            errorMessage = "Verificacion de recibo con errores: \(error.localizedDescription)"
         }
     }
 }

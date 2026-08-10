@@ -4,6 +4,8 @@ import CloudKit
 class DataManager {
     static let shared = DataManager()
     
+    var onError: ((String) -> Void)?
+    
     lazy var persistentContainer: NSPersistentCloudKitContainer = {
         let container = NSPersistentCloudKitContainer(name: "PrompterAI")
         
@@ -16,9 +18,9 @@ class DataManager {
             )
         }
         
-        container.loadPersistentStores { _, error in
+        container.loadPersistentStores { [weak self] _, error in
             if let error = error {
-                print("CoreData Load Error: \(error.localizedDescription)")
+                self?.notifyError("CoreData Load Error: \(error.localizedDescription)")
             }
         }
         
@@ -28,7 +30,7 @@ class DataManager {
         return container
     }()
     
-    func createScript(title: String, content: String, completion: ((Bool) -> Void)? = nil) {
+    func createScript(title: String, content: String, completion: ((Bool, Error?) -> Void)? = nil) {
         let context = persistentContainer.viewContext
         context.perform {
             let script = ScriptEntity(context: context)
@@ -36,15 +38,32 @@ class DataManager {
             script.title = title
             script.content = content
             script.createdAt = Date()
+            script.updatedAt = Date()
             script.lastPosition = 0
             script.isFavorite = false
             
-            self.saveContext()
-            completion?(true)
+            if let error = self.saveContext() {
+                completion?(false, error)
+            } else {
+                completion?(true, nil)
+            }
         }
     }
     
-    func fetchScripts(completion: @escaping ([ScriptEntity]) -> Void) {
+    func updateScript(_ script: ScriptEntity, title: String? = nil, content: String? = nil, lastPosition: Int32? = nil, isFavorite: Bool? = nil) {
+        let context = persistentContainer.viewContext
+        context.perform {
+            if let title = title { script.title = title }
+            if let content = content { script.content = content }
+            if let lastPosition = lastPosition { script.lastPosition = lastPosition }
+            if let isFavorite = isFavorite { script.isFavorite = isFavorite }
+            script.updatedAt = Date()
+            
+            _ = self.saveContext()
+        }
+    }
+    
+    func fetchScripts(completion: @escaping ([ScriptEntity], Error?) -> Void) {
         let context = persistentContainer.viewContext
         let request = NSFetchRequest<ScriptEntity>(entityName: "ScriptEntity")
         request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
@@ -52,28 +71,41 @@ class DataManager {
         context.perform {
             do {
                 let results = try request.execute()
-                completion(results)
+                completion(results, nil)
             } catch {
-                print("Fetch Error: \(error)")
-                completion([])
+                self.notifyError("Fetch Error: \(error.localizedDescription)")
+                completion([], error)
             }
         }
     }
     
-    func deleteScript(script: ScriptEntity) {
+    func deleteScript(script: ScriptEntity, completion: ((Bool, Error?) -> Void)? = nil) {
         let context = persistentContainer.viewContext
         context.delete(script)
-        saveContext()
+        if let error = saveContext() {
+            completion?(false, error)
+        } else {
+            completion?(true, nil)
+        }
     }
     
-    func saveContext() {
+    @discardableResult
+    func saveContext() -> Error? {
         let context = persistentContainer.viewContext
         if context.hasChanges {
             do {
                 try context.save()
+                return nil
             } catch {
-                print("Save Error: \(error)")
+                notifyError("Save Error: \(error.localizedDescription)")
+                return error
             }
         }
+        return nil
+    }
+    
+    private func notifyError(_ message: String) {
+        print(message)
+        onError?(message)
     }
 }
