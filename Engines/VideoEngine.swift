@@ -6,6 +6,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     var captureSession: AVCaptureSession?
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
+    private var videoOutput: AVCaptureVideoDataOutput?
     
     var isRecording: Bool = false
     private var startTime: CMTime = .invalid
@@ -45,8 +46,18 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 session.addOutput(videoOutput)
             }
             
+            if let connection = videoOutput.connection(with: .video) {
+                if connection.isVideoRotationAngleSupported(90) {
+                    connection.videoRotationAngle = 90
+                }
+                if connection.isVideoMirroringSupported {
+                    connection.isVideoMirrored = true
+                }
+            }
+            
             session.commitConfiguration()
             self.captureSession = session
+            self.videoOutput = videoOutput
             
             session.startRunning()
             DispatchQueue.main.async { completion(true) }
@@ -60,6 +71,12 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                   session.isRunning else {
                 DispatchQueue.main.async { completion(false) }
                 return
+            }
+            
+            if let output = self.videoOutput,
+               let connection = output.connection(with: .video),
+               connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
             }
             
             do {

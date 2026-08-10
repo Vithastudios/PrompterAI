@@ -92,6 +92,10 @@ class NeuralFlowEngine {
     }
     
     private func predictPauseNeeded(for word: String) -> Bool {
+        if pauseDuration > pauseThreshold {
+            return true
+        }
+        
         let punctuation = [".", ",", ";", ":", "!", "?"]
         return punctuation.contains { word.contains($0) }
     }

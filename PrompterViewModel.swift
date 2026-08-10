@@ -49,6 +49,18 @@ class PrompterViewModel: ObservableObject {
                 }
             }
         }
+        
+        neuralEngine.onPauseDetected = { [weak self] shouldPause in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if shouldPause, self.isPlaying, !self.isManualDragging {
+                    self.scrollEngine.setSpeed(0)
+                } else if !shouldPause, self.isPlaying, !self.isManualDragging {
+                    self.scrollEngine.setSpeed(self.currentSpeed)
+                }
+            }
+        }
     }
     
     func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {

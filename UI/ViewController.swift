@@ -16,7 +16,6 @@ class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        setupGestures()
         connectViewModel()
     }
     
@@ -83,11 +82,6 @@ class ViewController: UIViewController {
         view.addSubview(progressView)
     }
     
-    private func setupGestures() {
-        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        textView.addGestureRecognizer(panGesture)
-    }
-    
     private func connectViewModel() {
         viewModel.attachUI(textView: textView, previewLayer: previewLayer)
     }
@@ -105,20 +99,23 @@ class ViewController: UIViewController {
         viewModel.togglePlayPause()
         playButton.setTitle(viewModel.isPlaying ? "Pause" : "Play", for: .normal)
     }
-    
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        switch gesture.state {
-        case .began:
-            viewModel.didStartManualScroll()
-        case .ended, .cancelled:
-            viewModel.didEndManualScroll()
-        default:
-            break
-        }
-    }
 }
 
 extension ViewController: UITextViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        viewModel.didStartManualScroll()
+    }
+    
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            viewModel.didEndManualScroll()
+        }
+    }
+    
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        viewModel.didEndManualScroll()
+    }
+    
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let maxOffset = max(0, scrollView.contentSize.height - scrollView.frame.height)
         let progress = maxOffset > 0 ? scrollView.contentOffset.y / maxOffset : 0

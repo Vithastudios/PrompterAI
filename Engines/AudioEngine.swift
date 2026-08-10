@@ -79,7 +79,7 @@ class AudioEngine: NSObject, ObservableObject {
         guard let recognitionRequest = recognitionRequest else { return }
         
         recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.addsPunctuation = false
+        recognitionRequest.addsPunctuation = true
         
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -134,7 +134,7 @@ class AudioEngine: NSObject, ObservableObject {
     
     private func handleSpeechResult(_ text: String) {
         let words = text.components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }
+            .map { $0.lowercased() }
             .filter { !$0.isEmpty }
         
         guard let lastWord = words.last, audioEnergy > energyThreshold else { return }
