@@ -125,7 +125,7 @@ class PrompterViewModel: ObservableObject {
             self.isPlaying = false
             self.scrollEngine.setSpeed(0)
             
-            let generator = UINotificationFeedbackGenerator()
+let generator = UINotificationFeedbackGenerator()
             generator.notificationOccurred(.success)
         }
     }
@@ -150,9 +150,36 @@ class PrompterViewModel: ObservableObject {
         isManualDragging = false
         scrollEngine.handleManualDragEnded()
         
+        syncReadingPosition()
+        
         if isPlaying {
             scrollEngine.setSpeed(currentSpeed)
         }
+    }
+    
+    func syncReadingPosition() {
+        guard let textView = textView else { return }
+        
+        let visibleCenterY = textView.contentOffset.y + textView.bounds.height / 2
+        let point = CGPoint(x: textView.bounds.width / 2, y: visibleCenterY)
+        
+        let characterIndex = textView.layoutManager.characterIndex(
+            for: point,
+            in: textView.textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
+        
+        let wordIndex = wordIndex(forCharacter: characterIndex)
+        neuralEngine.syncPosition(to: wordIndex)
+    }
+    
+    private func wordIndex(forCharacter characterIndex: Int) -> Int {
+        guard !scriptText.isEmpty else { return 0 }
+        
+        let prefix = String(scriptText.prefix(characterIndex))
+        let words = prefix.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        return max(0, words.count - 1)
     }
     
     func updateFontSize(_ size: CGFloat) {
