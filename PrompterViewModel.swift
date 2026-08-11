@@ -213,16 +213,19 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             if isPremium {
                 finalize(url, nil)
             } else {
-                // applyWatermark completa en un hilo de fondo; hay que volver a main
-                // antes de tocar el MainActor (self) al finalizar.
+                // Plan free: si el watermark falla, NO guardar el video limpio (seria
+                // regalar el contenido premium). Se muestra un error y se conserva el
+                // archivo original por si el usuario quiere reintentar.
                 Watermarker.applyWatermark(to: url) { [weak self] watermarked in
                     guard let self = self else { return }
                     DispatchQueue.main.async {
-                        if let watermarked = watermarked {
-                            self.finalize(watermarked, url)
-                        } else {
-                            self.finalize(url, nil)
+                        guard let watermarked = watermarked else {
+                            self.errorMessage = "No se pudo procesar la marca de agua. El video original se conservo; intenta de nuevo."
+                            let gen = UINotificationFeedbackGenerator()
+                            gen.notificationOccurred(.error)
+                            return
                         }
+                        self.finalize(watermarked, url)
                     }
                 }
             }

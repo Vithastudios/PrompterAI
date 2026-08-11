@@ -111,5 +111,9 @@ Funcionalidades pendientes:
       Documents/Videos + registro CoreData `VideoEntity` con duracion/resolucion/tamano),
       vista `VideoLibraryView` (compartir/exportar con ShareLink, borrar) y boton "V" en
       la pantalla principal. `stopRecording` ahora conserva el .mov local.
-- [ ] F4: freemium real (watermark quemado + tiers free/pro) — revisar
+- [ ] F4: freemium real — ✅ REVISADO/REFORZADO (2026-08-11):
+      - Marka diagonal repetida + principal (mas dificil de quitar/recortar).
+      - Se respeta el frame rate REAL (ya no degrada 60fps a 30fps).
+      - BUG F4-E cerrado: si el watermark falla ya NO se guarda el video limpio
+        (antes regalaba el contenido premium); ahora bloquea con error.
 - [ ] Compilar en Xcode (B1) y probar en dispositivo real

@@ -19,7 +19,9 @@ struct Watermarker {
             return
         }
         
-        let fps = 30
+        // Respetar el frame rate REAL del video para no degradar grabaciones 60fps a 30fps.
+        let nominalFPS = track.nominalFrameRate
+        let fps = nominalFPS > 0 ? nominalFPS : 30.0
         let composition = AVMutableVideoComposition()
         composition.renderSize = renderSize
         composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
@@ -33,7 +35,7 @@ struct Watermarker {
         instruction.layerInstructions = [layerInstruction]
         composition.instructions = [instruction]
         
-        // Capa de marca de agua
+        // Capa de marca de agua principal (abajo-centro)
         let margin: CGFloat = 24
         let fontSize: CGFloat = 28
         let textLayer = CATextLayer()
@@ -68,7 +70,8 @@ struct Watermarker {
         )
         
         parentLayer.addSublayer(videoLayer)
-        parentLayer.addSublayer(textLayer)
+        parentLayer.addSublayer(repeatedLayer(renderSize: renderSize, text: text))  // marca diagonal
+        parentLayer.addSublayer(textLayer)        // marca principal (por encima de todo)
         
         composition.animationTool = AVVideoCompositionCoreAnimationTool(
             postProcessingAsVideoLayer: videoLayer,
@@ -97,6 +100,42 @@ struct Watermarker {
                 completion(nil)
             }
         }
+    }
+    
+    // Marca diagonal repetida a baja opacidad: cubre gran parte del frame para
+    // disuadir de recortar/quitar el watermark.
+    private static func repeatedLayer(renderSize: CGSize, text: String) -> CALayer {
+        let repeated = CALayer()
+        repeated.frame = CGRect(origin: .zero, size: renderSize)
+        repeated.contentsScale = UIScreen.main.scale
+        repeated.isOpaque = false
+        repeated.backgroundColor = UIColor.clear.cgColor
+        repeated.transform = CATransform3DMakeRotation(-CGFloat.pi / 6, 0, 0, 1)
+        
+        let textRef: NSString = text as NSString
+        let stepX: CGFloat = renderSize.width * 0.55
+        let stepY: CGFloat = renderSize.height * 0.45
+        
+        var dx: CGFloat = -renderSize.width * 0.25
+        var dy: CGFloat = renderSize.height * 0.1
+        while dy < renderSize.height * 1.2 {
+            var xx = dx
+            while xx < renderSize.width * 1.2 {
+                let t = CATextLayer()
+                t.string = textRef
+                t.fontSize = renderSize.width * 0.045
+                t.foregroundColor = UIColor.white.withAlphaComponent(0.12).cgColor
+                t.contentsScale = UIScreen.main.scale
+                let w = textRef.size(withAttributes: [.font: UIFont.systemFont(ofSize: t.fontSize)]).width + 20
+                t.frame = CGRect(x: xx, y: dy, width: w, height: t.fontSize + 8)
+                repeated.addSublayer(t)
+                xx += stepX
+            }
+            dy += stepY
+            dx += stepX / 2
+        }
+        
+        return repeated
     }
     
     private static func videoTransform(for track: AVAssetTrack, renderSize: CGSize) -> CGAffineTransform {
