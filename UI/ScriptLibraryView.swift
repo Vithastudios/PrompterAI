@@ -72,7 +72,7 @@ struct ScriptLibraryView: View {
     }
     
     private func load(_ script: ScriptEntity) {
-        viewModel.updateScript(script.content ?? "")
+        viewModel.loadScriptIntoTeleprompter(script)
         dismiss()
     }
     

@@ -2,6 +2,7 @@
 
 class NeuralFlowEngine {
     
+    private let lock = NSLock()
     private(set) var scriptWords: [String] = []
     private(set) var currentIndex: Int = 0
     private var lastWordTime: Date?
@@ -18,7 +19,11 @@ class NeuralFlowEngine {
     private let searchWindowForward: Int = 15
     private let dedupeInterval: TimeInterval = 0.6
     
+    // Los metodos de este engine se invocan desde el hilo de audio (processDetectedWord)
+    // y desde el hilo principal (syncPosition/loadScript/lecturas). Todas las rutas que
+    // tocan estado privado se serializan con `lock` para evitar data races.
     func loadScript(_ text: String) {
+        lock.lock()
         scriptWords = text.components(separatedBy: .whitespacesAndNewlines)
             .map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
@@ -27,16 +32,19 @@ class NeuralFlowEngine {
         lastDetectedWord = nil
         lastDetectedTimestamp = nil
         pauseDuration = 0.0
+        lock.unlock()
     }
     
     func processDetectedWord(_ word: String, energy: Float) {
         let cleanWord = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard !cleanWord.isEmpty else { return }
         
+        lock.lock()
         if let lastWord = lastDetectedWord,
            let lastTime = lastDetectedTimestamp,
            lastWord == cleanWord,
            Date().timeIntervalSince(lastTime) < dedupeInterval {
+            lock.unlock()
             return
         }
         lastDetectedWord = cleanWord
@@ -44,41 +52,68 @@ class NeuralFlowEngine {
         
         updateContextTime(for: cleanWord)
         
+        let needsPause = predictPauseNeeded(for: cleanWord)
+        let matchResult: (index: Int, adjustment: CGFloat)?
         if let matchIndex = findMatchIndex(for: cleanWord) {
-            updatePosition(to: matchIndex)
-            
             let distance = matchIndex - currentIndex
             let speedAdjustment = calculateSpeedAdjustment(distance: distance, energy: energy)
-            
+            currentIndex = matchIndex
+            matchResult = (matchIndex, speedAdjustment)
+        } else {
+            matchResult = nil
+        }
+        lock.unlock()
+        
+        if let result = matchResult {
             DispatchQueue.main.async { [weak self] in
-                self?.onSpeedAdjustment?(speedAdjustment)
+                self?.onSpeedAdjustment?(result.adjustment)
+                self?.onPositionChanged?(result.index)
             }
         }
         
-        let needsPause = predictPauseNeeded(for: cleanWord)
         DispatchQueue.main.async { [weak self] in
             self?.onPauseDetected?(needsPause)
         }
     }
     
     func syncPosition(to index: Int) {
-        guard !scriptWords.isEmpty else { return }
+        lock.lock()
+        guard !scriptWords.isEmpty else {
+            lock.unlock()
+            return
+        }
         let clamped = min(max(index, 0), scriptWords.count - 1)
-        guard clamped != currentIndex else { return }
+        let changed = clamped != currentIndex
         currentIndex = clamped
         lastDetectedWord = nil
         lastDetectedTimestamp = nil
-        onPositionChanged?(clamped)
+        lock.unlock()
+        
+        if changed {
+            DispatchQueue.main.async { [weak self] in
+                self?.onPositionChanged?(clamped)
+            }
+        }
     }
     
     func reset() {
+        lock.lock()
         currentIndex = 0
         lastWordTime = nil
         lastDetectedWord = nil
         lastDetectedTimestamp = nil
         pauseDuration = 0.0
+        lock.unlock()
     }
     
+    // Lectura thread-safe del indice actual (para guardar posicion desde main).
+    func readingIndex() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentIndex
+    }
+    
+    // Se asume con `lock` adquirido.
     private func updateContextTime(for word: String) {
         let now = Date()
         if let last = lastWordTime {
@@ -87,6 +122,7 @@ class NeuralFlowEngine {
         lastWordTime = now
     }
     
+    // Se asume con `lock` adquirido.
     private func findMatchIndex(for word: String) -> Int? {
         guard !scriptWords.isEmpty else { return nil }
         
@@ -105,11 +141,6 @@ class NeuralFlowEngine {
         }
         
         return bestIndex
-    }
-    
-    private func updatePosition(to index: Int) {
-        currentIndex = index
-        onPositionChanged?(index)
     }
     
     private func maxDistance(for word: String) -> Int {
@@ -147,6 +178,7 @@ class NeuralFlowEngine {
         return previous[n]
     }
     
+    // Se asume con `lock` adquirido.
     private func calculateSpeedAdjustment(distance: Int, energy: Float) -> CGFloat {
         if pauseDuration > pauseThreshold {
             return 0.2
@@ -165,6 +197,7 @@ class NeuralFlowEngine {
         return 1.0
     }
     
+    // Se asume con `lock` adquirido.
     private func predictPauseNeeded(for word: String) -> Bool {
         if pauseDuration > pauseThreshold {
             return true

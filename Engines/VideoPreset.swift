@@ -40,20 +40,26 @@ enum VideoPresetResolver {
             return VideoQuality.medium.preset
         }
         
-        let machine = machineName().lowercased()
+        let identifier = machineIdentifier()
         
-        // Ultra 4K60: solo los chips A17 Pro / A18 en adelante
-        let ultra: [String] = ["iphone15pro", "iphone16"]
-        if ultra.contains(where: { machine.hasPrefix($0) }) {
+        // Ultra 4K60: solo chips A17 Pro / A18 en adelante
+        //   iPhone 15 Pro/Max = iPhone16,1 / iPhone16,2 (A17 Pro)
+        //   iPhone 16 serie   = iPhone17,x (A18/A18 Pro)
+        if identifier.hasPrefix("iPhone16,") || identifier.hasPrefix("iPhone17,") {
             return VideoQuality.ultra.preset
         }
         
-        // High 1080p60: A15 / A16 (iPhone 13 y 14)
+        // High 1080p60: A15 / A16 (iPhone 13, SE3, 14)
+        //   iPhone 13/13 mini/13 Pro/13 Pro Max = iPhone14,2..iPhone14,5
+        //   iPhone SE 3 = iPhone14,6
+        //   iPhone 14/14 Plus = iPhone14,7/iPhone14,8
+        //   iPhone 14 Pro/Pro Max = iPhone15,2/iPhone15,3
         let high: [String] = [
-            "iphone13", "iphone14",
-            "iphonese3"
+            "iPhone14,2", "iPhone14,3", "iPhone14,4", "iPhone14,5",
+            "iPhone14,6", "iPhone14,7", "iPhone14,8",
+            "iPhone15,2", "iPhone15,3", "iPhone15,4", "iPhone15,5"
         ]
-        if high.contains(where: { machine.hasPrefix($0) }) {
+        if high.contains(where: { $0 == identifier }) {
             return VideoQuality.high.preset
         }
         
@@ -61,7 +67,9 @@ enum VideoPresetResolver {
         return VideoQuality.medium.preset
     }
     
-    private static func machineName() -> String {
+    // uname().machine devuelve el identificador de hardware, p.ej. "iPhone15,2",
+    // NO el nombre comercial ("iPhone15pro"). Mapear por identificador es lo correcto.
+    private static func machineIdentifier() -> String {
         var systemInfo = utsname()
         uname(&systemInfo)
         let mirror = Mirror(reflecting: systemInfo.machine)

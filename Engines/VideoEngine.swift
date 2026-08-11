@@ -137,19 +137,27 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             
             self.lastOutputURL = outputUrl
             
+            // Cambiar el preset en caliente con beginConfiguration/commitConfiguration
+            // es seguro y NO requiere detener/reiniciar la sesion (evita frames muertos
+            // y el riesgo de que la sesion quede en un estado invalido).
             let targetPreset = self.capturePreset()
             if session.sessionPreset != targetPreset {
-                session.stopRunning()
                 session.beginConfiguration()
                 session.sessionPreset = targetPreset
                 session.commitConfiguration()
-                session.startRunning()
             }
             
             if let output = self.videoOutput,
                let connection = output.connection(with: .video),
-               connection.isVideoRotationAngleSupported(90) {
+               connection.isVideoRotationAngleSupported(90),
+               connection.videoRotationAngle != 90 {
                 connection.videoRotationAngle = 90
+            }
+            
+            if let connection = self.videoOutput?.connection(with: .video),
+               connection.isVideoMirroringSupported,
+               !connection.isVideoMirrored {
+                connection.isVideoMirrored = true
             }
             
             do {
@@ -180,20 +188,38 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                 let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
                 audioInput.expectsMediaDataInRealTime = true
                 
-                if writer.canAdd(videoInput) {
+                let addVideo = writer.canAdd(videoInput)
+                if addVideo {
                     writer.add(videoInput)
-                    self.videoInput = videoInput
                 }
-                if writer.canAdd(audioInput) {
+                let addAudio = writer.canAdd(audioInput)
+                if addAudio {
                     writer.add(audioInput)
-                    self.audioInput = audioInput
                 }
                 
+                // Publicar las referencias compartidas bajo el lock para que los hilos
+                // de captura (que las leen bajo el mismo lock) vean la memoria correcta.
+                writerLock.lock()
                 self.assetWriter = writer
+                self.videoInput = addVideo ? videoInput : nil
+                self.audioInput = addAudio ? audioInput : nil
                 self.isRecording = true
                 self.startTime = .invalid
+                let started = writer.startWriting()
+                writerLock.unlock()
                 
-                writer.startWriting()
+                if !started {
+                    writerLock.lock()
+                    self.assetWriter = nil
+                    self.videoInput = nil
+                    self.audioInput = nil
+                    self.isRecording = false
+                    self.startTime = .invalid
+                    writerLock.unlock()
+                    DispatchQueue.main.async { completion(false) }
+                    return
+                }
+                
                 DispatchQueue.main.async { completion(true) }
                 
             } catch {
@@ -239,29 +265,37 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             writerLock.lock()
             let shouldAppend = isRecording && audioInput?.isReadyForMoreMediaData == true
             let target = audioInput
+            if shouldAppend {
+                _ = beginSessionIfNeeded(with: sampleBuffer, writer: assetWriter)
+            }
             writerLock.unlock()
             
-            guard shouldAppend, let target = target else { return }
-            
-            beginSessionIfNeeded(with: sampleBuffer)
-            target.append(sampleBuffer)
+            if shouldAppend, let target = target {
+                target.append(sampleBuffer)
+            }
             return
         }
         
         writerLock.lock()
         let shouldAppend = isRecording && videoInput?.isReadyForMoreMediaData == true
         let target = videoInput
+        if shouldAppend {
+            _ = beginSessionIfNeeded(with: sampleBuffer, writer: assetWriter)
+        }
         writerLock.unlock()
         
-        guard shouldAppend, let target = target else { return }
-        
-        beginSessionIfNeeded(with: sampleBuffer)
-        target.append(sampleBuffer)
+        if shouldAppend, let target = target {
+            target.append(sampleBuffer)
+        }
     }
     
-    private func beginSessionIfNeeded(with sampleBuffer: CMSampleBuffer) {
-        guard !startTime.isValid, let assetWriter = assetWriter else { return }
+    // Debe llamarse SIEMPRE con `writerLock` adquirido. Garantiza que la sesion
+    // de escritura arranca exactamente una vez, con el timestamp del primer
+    // buffer real, evitando la race entre los hilos de audio/video y stopRecording.
+    private func beginSessionIfNeeded(with sampleBuffer: CMSampleBuffer, writer: AVAssetWriter?) -> Bool {
+        guard !startTime.isValid, let writer = writer else { return startTime.isValid }
         startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        assetWriter.startSession(atSourceTime: startTime)
+        writer.startSession(atSourceTime: startTime)
+        return true
     }
 }

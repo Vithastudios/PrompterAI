@@ -29,6 +29,7 @@ class PrompterViewModel: ObservableObject {
     
     weak var textView: UITextView?
     weak var previewLayer: AVCaptureVideoPreviewLayer?
+    var currentScript: ScriptEntity?
     
     var isManualDragging = false
     private var cancellables = Set<AnyCancellable>()
@@ -49,9 +50,12 @@ class PrompterViewModel: ObservableObject {
     }
     
     private func setupBindings() {
-        audioEngine.onWordDetected = { [weak self] word, energy in
-            guard let self = self else { return }
-            self.neuralEngine.processDetectedWord(word, energy: energy)
+        // El closure de deteccion de palabra corre en el hilo de audio. Capturamos el
+        // engine (objeto no-actor y thread-safe) directamente en vez de `self`, para no
+        // tocar el MainActor desde el hilo de audio.
+        let neuralEngine = self.neuralEngine
+        audioEngine.onWordDetected = { word, energy in
+            neuralEngine.processDetectedWord(word, energy: energy)
         }
         
         neuralEngine.onSpeedAdjustment = { [weak self] multiplier in
@@ -151,6 +155,7 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             self.isRecording = false
             self.isPlaying = false
             self.scrollEngine.setSpeed(0)
+            self.saveCurrentPosition()
             
             guard let url = url else {
                 self.errorMessage = "Fallo al finalizar la grabacion"
@@ -182,11 +187,16 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             if isPremium {
                 finalize(url, nil)
             } else {
-                Watermarker.applyWatermark(to: url) { watermarked in
-                    if let watermarked = watermarked {
-                        finalize(watermarked, url)
-                    } else {
-                        finalize(url, nil)
+                // applyWatermark completa en un hilo de fondo; hay que volver a main
+                // antes de tocar el MainActor (self) al finalizar.
+                Watermarker.applyWatermark(to: url) { [weak self] watermarked in
+                    guard let self = self else { return }
+                    DispatchQueue.main.async {
+                        if let watermarked = watermarked {
+                            self.finalize(watermarked, url)
+                        } else {
+                            self.finalize(url, nil)
+                        }
                     }
                 }
             }
@@ -201,6 +211,7 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             audioEngine.startListening()
         } else {
             scrollEngine.setSpeed(0)
+            saveCurrentPosition()
         }
     }
     func didStartManualScroll() {
@@ -238,8 +249,11 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
     private func wordIndex(forCharacter characterIndex: Int) -> Int {
         guard !scriptText.isEmpty else { return 0 }
         
-        let prefix = String(scriptText.prefix(characterIndex))
-        let words = prefix.components(separatedBy: .whitespacesAndNewlines)
+        // characterIndex viene de TextKit y esta en unidades UTF-16.
+        // Construimos el prefijo marginando en UTF-16 para no mezclar con graphemes.
+        let trimmed = scriptText.utf16.prefix(max(0, characterIndex))
+        let prefixString = String(decoding: Array(trimmed), as: UTF16.self)
+        let words = prefixString.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         return max(0, words.count - 1)
     }
@@ -263,4 +277,57 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
         textView?.text = text
         neuralEngine.loadScript(text)
     }
+    
+    func loadScriptIntoTeleprompter(_ script: ScriptEntity?) {
+        // Guardar la posicion del guion anterior antes de cambiarlo.
+        saveCurrentPosition()
+        
+        currentScript = script
+        guard let text = script?.content, !text.isEmpty else { return }
+        updateScript(text)
+        
+        // Restaurar la ultima posicion leida de este guion.
+        let position = Int(script?.lastPosition ?? 0)
+        restorePosition(position)
+    }
+    
+    func saveCurrentPosition() {
+        guard let script = currentScript, let textView = textView else { return }
+        syncReadingPosition()
+        let position = Int32(neuralEngine.readingIndex())
+        if position != script.lastPosition {
+            script.lastPosition = position
+            dataManager.updateScript(script, lastPosition: position)
+        }
+    }
+    
+    private func restorePosition(_ wordIndex: Int) {
+        guard let textView = textView, !scriptText.isEmpty else { return }
+        neuralEngine.syncPosition(to: wordIndex)
+        
+        let words = scriptText.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        guard !words.isEmpty, wordIndex >= 0, wordIndex < words.count else { return }
+        
+        // Hallar el offset UTF-16 de inicio de la palabra activa para posicionar el
+        // scroll en ella. TextKit usa offsets UTF-16, por eso contamos en UTF-16.
+        var utf16Offset = 0
+        var currentWord = 0
+        let tokens = scriptText.components(separatedBy: .whitespacesAndNewlines)
+        for token in tokens {
+            if currentWord == wordIndex { break }
+            currentWord += 1
+            utf16Offset += token.utf16.count + 1
+        }
+        
+        let bounded = min(utf16Offset, scriptText.utf16.count)
+        let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: bounded)
+        let rect = textView.layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textView.textContainer
+        )
+        let targetY = max(0, rect.origin.y - textView.bounds.height / 2)
+        textView.setContentOffset(CGPoint(x: 0, y: targetY), animated: false)
+    }
+
 }

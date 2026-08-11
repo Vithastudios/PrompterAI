@@ -14,6 +14,11 @@ class ScrollEngine {
     private var lastTimestamp: CFTimeInterval = 0
     
     func attach(to scrollView: UIScrollView) {
+        // Idempotente: si ya hay un displayLink activo, lo invalidamos antes de crear
+        // uno nuevo para evitar dobles loops / fugas si attach se llama dos veces.
+        displayLink?.invalidate()
+        displayLink = nil
+        
         self.scrollView = scrollView
         
         displayLink = CADisplayLink(target: self, selector: #selector(updateLoop(_:)))

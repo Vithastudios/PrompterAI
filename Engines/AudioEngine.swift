@@ -78,17 +78,22 @@ class AudioEngine: NSObject, ObservableObject {
     }
     
     func consumeSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        let pcm = Self.pcmBuffer(from: sampleBuffer)
-        
-        lock.lock()
-        let isActive = isListening
-        let request = recognitionRequest
-        lock.unlock()
-        
-        guard isActive, let pcm = pcm else { return }
-        
-        request?.append(pcm)
-        processAudioBuffer(pcm)
+        // El autoreleasepool evita que los buffers PCM temporales se acumulen en el
+        // pool de autorelease del hilo de captura (de alta frecuencia), lo que causaria
+        // picos de memoria al grabar 4K + audio durante minutos.
+        autoreleasepool {
+            guard let pcm = Self.pcmBuffer(from: sampleBuffer) else { return }
+            
+            lock.lock()
+            let isActive = isListening
+            let request = recognitionRequest
+            lock.unlock()
+            
+            guard isActive else { return }
+            
+            request?.append(pcm)
+            processAudioBuffer(pcm)
+        }
     }
     
     private func configureRecognition() {
