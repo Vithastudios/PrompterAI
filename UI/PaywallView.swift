@@ -92,10 +92,10 @@ struct PaywallView: View {
     }
     
     private var termsURL: URL {
-        URL(string: "https://www.vithastudios.com/sistemas/PromterAI/terms")!
+        URL(string: "https://www.vithastudios.com/sistemas/PrompterAI/terms")!
     }
     private var privacyURL: URL {
-        URL(string: "https://www.vithastudios.com/sistemas/PromterAI/privacy")
+        URL(string: "https://www.vithastudios.com/sistemas/PrompterAI/privacy")
     }
 }
 
