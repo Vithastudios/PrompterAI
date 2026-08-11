@@ -17,6 +17,7 @@ class PrompterViewModel: ObservableObject {
     @Published var resolutionLabel: String = "1080p30"
     @Published var lastVideoURL: URL?
     @Published var showScriptLibrary: Bool = false
+    @Published var showVideoLibrary: Bool = false
     @Published var showSettings: Bool = false
     @Published var showPaywall: Bool = false
     @Published var isPremium: Bool = false
@@ -26,6 +27,7 @@ class PrompterViewModel: ObservableObject {
     let scrollEngine = ScrollEngine()
     let neuralEngine = NeuralFlowEngine()
     let dataManager = DataManager.shared
+    let videoLibraryManager = VideoLibraryManager.shared
     
     weak var textView: UITextView?
     weak var previewLayer: AVCaptureVideoPreviewLayer?
@@ -176,20 +178,34 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             
             let finalize: (URL, URL?) -> Void = { [weak self] finalURL, tempURL in
                 guard let self = self else { return }
-                VideoSaver.shared.saveToLibrary(videoURL: finalURL) { ok, message in
-                    if ok {
-                        self.lastVideoURL = finalURL
-                        self.statusMessage = self.isPremium ? "Video guardado en tu galeria" : "Video guardado (marca de agua)"
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        // Limpiar archivos temporales/fuente tras guardar en Fotos.
-                        for urlToDelete in [tempURL, finalURL].compactMap({ $0 }) {
-                            try? FileManager.default.removeItem(at: urlToDelete)
+                let resolution = self.resolutionLabel
+                
+                // Registrar el video de forma persistente en Documents/Videos y en CoreData.
+                self.videoLibraryManager.importVideo(from: finalURL, resolutionName: resolution, duration: 0.0) { storedURL, _ in
+                    guard let storedURL = storedURL else {
+                        self.errorMessage = "No se pudo guardar el video."
+                        let gen = UINotificationFeedbackGenerator()
+                        gen.notificationOccurred(.error)
+                        return
+                    }
+                    
+                    // Limpiar temporales (origen del watermark y archivo provisional).
+                    for urlToDelete in [tempURL, finalURL].compactMap({ $0 })
+                        where urlToDelete.standardizedFileURL != storedURL.standardizedFileURL {
+                        try? FileManager.default.removeItem(at: urlToDelete)
+                    }
+                    
+                    // Copiar a Fotos (best-effort; no borramos el archivo local, la lista
+                    // de videos depende de el).
+                    VideoSaver.shared.saveToLibrary(videoURL: storedURL) { ok, message in
+                        self.lastVideoURL = storedURL
+                        if ok {
+                            self.statusMessage = self.isPremium ? "Video guardado" : "Video guardado (marca de agua)"
+                        } else {
+                            self.statusMessage = "Video guardado en la app"
                         }
-                    } else {
-                        self.errorMessage = message ?? "No se pudo guardar el video."
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.error)
+                        let gen = UINotificationFeedbackGenerator()
+                        gen.notificationOccurred(.success)
                     }
                 }
             }

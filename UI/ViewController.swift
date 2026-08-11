@@ -11,6 +11,7 @@ class ViewController: UIViewController {
     let recordButton = UIButton(type: .custom)
     let playButton = UIButton(type: .custom)
     let libraryButton = UIButton(type: .custom)
+    let videoLibraryButton = UIButton(type: .custom)
     let settingsButton = UIButton(type: .custom)
     let proButton = UIButton(type: .custom)
     let progressView = UIView()
@@ -95,8 +96,16 @@ class ViewController: UIViewController {
         libraryButton.addTarget(self, action: #selector(openLibrary), for: .touchUpInside)
         view.addSubview(libraryButton)
         
+        videoLibraryButton.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+        videoLibraryButton.center = CGPoint(x: 130, y: view.bounds.height - 180)
+        videoLibraryButton.setTitle("V", for: .normal)
+        videoLibraryButton.setTitleColor(.white, for: .normal)
+        videoLibraryButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        videoLibraryButton.addTarget(self, action: #selector(openVideoLibrary), for: .touchUpInside)
+        view.addSubview(videoLibraryButton)
+        
         settingsButton.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
-        settingsButton.center = CGPoint(x: 130, y: view.bounds.height - 180)
+        settingsButton.center = CGPoint(x: 200, y: view.bounds.height - 180)
         settingsButton.setTitle("A", for: .normal)
         settingsButton.setTitleColor(.white, for: .normal)
         settingsButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
@@ -143,6 +152,10 @@ class ViewController: UIViewController {
     
     @objc private func openLibrary() {
         viewModel.showScriptLibrary = true
+    }
+    
+    @objc private func openVideoLibrary() {
+        viewModel.showVideoLibrary = true
     }
     
     @objc private func openSettings() {

@@ -27,6 +27,9 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.showScriptLibrary) {
             ScriptLibraryView(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.showVideoLibrary) {
+            VideoLibraryView(viewModel: viewModel)
+        }
         .sheet(isPresented: $viewModel.showSettings) {
             SettingsView(viewModel: viewModel)
         }

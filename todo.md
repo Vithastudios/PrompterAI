@@ -107,6 +107,9 @@ Funcionalidades pendientes:
 - [x] F1: highlight de palabra activa + sincronización fina ✅ (temporary attributes en
       layoutManager, `range(ofWordAtIndex:)` con offset UTF-16, `keepActiveWordVisible`
       reposiciona suave en modo lectura, `allowsNonContiguousLayout` desactivado)
+- [x] **Lista/export de videos grabados** ✅ — `VideoLibraryManager` (persistencia en
+      Documents/Videos + registro CoreData `VideoEntity` con duracion/resolucion/tamano),
+      vista `VideoLibraryView` (compartir/exportar con ShareLink, borrar) y boton "V" en
+      la pantalla principal. `stopRecording` ahora conserva el .mov local.
 - [ ] F4: freemium real (watermark quemado + tiers free/pro) — revisar
-- [ ] Lista/export de videos grabados
 - [ ] Compilar en Xcode (B1) y probar en dispositivo real
