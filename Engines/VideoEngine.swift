@@ -19,6 +19,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     private let sessionQueue = DispatchQueue(label: "com.vithastudios.videoSessionQueue")
     private let videoQueue = DispatchQueue(label: "com.vithastudios.videoQueue")
     private let audioQueue = DispatchQueue(label: "com.vithastudios.audioQueue")
+    private let writerLock = NSLock()
     
     func setupCamera(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .video) { videoGranted in
@@ -42,9 +43,10 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     
     private func capturePreset() -> AVCaptureSession.Preset {
         let preset = currentPreset()
-        if preset.width >= 3840 {
+        let longestSide = max(preset.width, preset.height)
+        if longestSide >= 3840 {
             return .hd4K3840x2160
-        } else if preset.height >= 1080 {
+        } else if longestSide >= 1920 {
             return .hd1920x1080
         } else {
             return .hd1280x720
@@ -208,17 +210,22 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                 return
             }
             
+            writerLock.lock()
             self.isRecording = false
             self.videoInput?.markAsFinished()
             self.audioInput?.markAsFinished()
+            let writer = self.assetWriter
             let url = self.lastOutputURL
+            writerLock.unlock()
             
-            self.assetWriter?.finishWriting {
-                let finished = self.assetWriter?.status == .completed
+            writer?.finishWriting {
+                let finished = writer?.status == .completed
+                writerLock.lock()
                 self.assetWriter = nil
                 self.videoInput = nil
                 self.audioInput = nil
                 self.startTime = .invalid
+                writerLock.unlock()
                 DispatchQueue.main.async { completion(finished ? url : nil) }
             }
         }
@@ -226,24 +233,35 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if output === self.audioOutput {
+            // El reconocimiento de voz siempre recibe el audio (funciona aun sin grabar).
             self.onAudioSampleBuffer?(sampleBuffer)
             
-            guard isRecording,
-                  let audioInput = audioInput,
-                  audioInput.isReadyForMoreMediaData else { return }
-            audioInput.append(sampleBuffer)
+            writerLock.lock()
+            let shouldAppend = isRecording && audioInput?.isReadyForMoreMediaData == true
+            let target = audioInput
+            writerLock.unlock()
+            
+            guard shouldAppend, let target = target else { return }
+            
+            beginSessionIfNeeded(with: sampleBuffer)
+            target.append(sampleBuffer)
             return
         }
         
-        guard isRecording,
-              let videoInput = videoInput,
-              videoInput.isReadyForMoreMediaData else { return }
+        writerLock.lock()
+        let shouldAppend = isRecording && videoInput?.isReadyForMoreMediaData == true
+        let target = videoInput
+        writerLock.unlock()
         
-        if !startTime.isValid {
-            startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            assetWriter?.startSession(atSourceTime: startTime)
-        }
+        guard shouldAppend, let target = target else { return }
         
-        videoInput.append(sampleBuffer)
+        beginSessionIfNeeded(with: sampleBuffer)
+        target.append(sampleBuffer)
+    }
+    
+    private func beginSessionIfNeeded(with sampleBuffer: CMSampleBuffer) {
+        guard !startTime.isValid, let assetWriter = assetWriter else { return }
+        startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        assetWriter.startSession(atSourceTime: startTime)
     }
 }

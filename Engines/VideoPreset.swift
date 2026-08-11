@@ -11,21 +11,24 @@ struct VideoPreset {
 }
 
 enum VideoQuality {
-    case ultra // 4K60 H.265
-    case high   // 1080p60 H.265
-    case medium // 1080p30 H.264
-    case low    // 720p30 H.264
+    case ultra // 4K portrait H.265
+    case high   // 1080p portrait H.265
+    case medium // 1080p portrait H.264
+    case low    // 720p portrait H.264
     
+    // La captura usa videoRotationAngle = 90 (portrait), por lo que los
+    // buffers entregados ya vienen en orientacion vertical. Las dimensiones
+    // del writer deben coincidir con esos buffers (ancho/alto portrait).
     var preset: VideoPreset {
         switch self {
         case .ultra:
-            return VideoPreset(codec: .hevc, width: 3840, height: 2160, bitRate: 40_000_000, frameRate: 60, name: "4K60")
+            return VideoPreset(codec: .hevc, width: 2160, height: 3840, bitRate: 40_000_000, frameRate: 60, name: "4K60")
         case .high:
-            return VideoPreset(codec: .hevc, width: 1920, height: 1080, bitRate: 12_000_000, frameRate: 60, name: "1080p60")
+            return VideoPreset(codec: .hevc, width: 1080, height: 1920, bitRate: 12_000_000, frameRate: 60, name: "1080p60")
         case .medium:
-            return VideoPreset(codec: .h264, width: 1920, height: 1080, bitRate: 8_000_000, frameRate: 30, name: "1080p30")
+            return VideoPreset(codec: .h264, width: 1080, height: 1920, bitRate: 8_000_000, frameRate: 30, name: "1080p30")
         case .low:
-            return VideoPreset(codec: .h264, width: 1280, height: 720, bitRate: 4_500_000, frameRate: 30, name: "720p30")
+            return VideoPreset(codec: .h264, width: 720, height: 1280, bitRate: 4_500_000, frameRate: 30, name: "720p30")
         }
     }
 }

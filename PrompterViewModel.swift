@@ -159,7 +159,7 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
                 return
             }
             
-            let finalize: (URL) -> Void = { [weak self] finalURL in
+            let finalize: (URL, URL?) -> Void = { [weak self] finalURL, tempURL in
                 guard let self = self else { return }
                 VideoSaver.shared.saveToLibrary(videoURL: finalURL) { ok, message in
                     if ok {
@@ -167,6 +167,10 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
                         self.statusMessage = self.isPremium ? "Video guardado en tu galeria" : "Video guardado (marca de agua)"
                         let generator = UINotificationFeedbackGenerator()
                         generator.notificationOccurred(.success)
+                        // Limpiar archivos temporales/fuente tras guardar en Fotos.
+                        for urlToDelete in [tempURL, finalURL].compactMap({ $0 }) {
+                            try? FileManager.default.removeItem(at: urlToDelete)
+                        }
                     } else {
                         self.errorMessage = message ?? "No se pudo guardar el video."
                         let generator = UINotificationFeedbackGenerator()
@@ -176,10 +180,14 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             }
             
             if isPremium {
-                finalize(url)
+                finalize(url, nil)
             } else {
                 Watermarker.applyWatermark(to: url) { watermarked in
-                    finalize(watermarked ?? url)
+                    if let watermarked = watermarked {
+                        finalize(watermarked, url)
+                    } else {
+                        finalize(url, nil)
+                    }
                 }
             }
         }
