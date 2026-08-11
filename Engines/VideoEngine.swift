@@ -12,6 +12,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     
     var onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
     var isRecording: Bool = false
+    var isPremium: Bool = true
     private(set) var lastOutputURL: URL?
     private var startTime: CMTime = .invalid
     
@@ -35,8 +36,12 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
         }
     }
     
-    private static func capturePreset() -> AVCaptureSession.Preset {
-        let preset = VideoPresetResolver.resolve()
+    private func currentPreset() -> VideoPreset {
+        VideoPresetResolver.resolve(isPremium: isPremium)
+    }
+    
+    private func capturePreset() -> AVCaptureSession.Preset {
+        let preset = currentPreset()
         if preset.width >= 3840 {
             return .hd4K3840x2160
         } else if preset.height >= 1080 {
@@ -55,7 +60,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             
             let session = AVCaptureSession()
             session.beginConfiguration()
-            session.sessionPreset = Self.capturePreset()
+            session.sessionPreset = self.capturePreset()
             
             let audioSession = AVAudioSession.sharedInstance()
             do {
@@ -129,6 +134,16 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             }
             
             self.lastOutputURL = outputUrl
+            
+            let targetPreset = self.capturePreset()
+            if session.sessionPreset != targetPreset {
+                session.stopRunning()
+                session.beginConfiguration()
+                session.sessionPreset = targetPreset
+                session.commitConfiguration()
+                session.startRunning()
+            }
+            
             if let output = self.videoOutput,
                let connection = output.connection(with: .video),
                connection.isVideoRotationAngleSupported(90) {
@@ -138,7 +153,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             do {
                 let writer = try AVAssetWriter(outputURL: outputUrl, fileType: .mov)
                 
-                let preset = VideoPresetResolver.resolve()
+                let preset = currentPreset()
                 
                 let videoSettings: [String: Any] = [
                     AVVideoCodecKey: preset.codec,

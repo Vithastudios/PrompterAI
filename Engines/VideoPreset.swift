@@ -31,7 +31,12 @@ enum VideoQuality {
 }
 
 enum VideoPresetResolver {
-    static func resolve() -> VideoPreset {
+    static func resolve(isPremium: Bool = true) -> VideoPreset {
+        // Plan Free: calidad limitada (1080p30 H.264), independiente del hardware.
+        guard isPremium else {
+            return VideoQuality.medium.preset
+        }
+        
         let machine = machineName().lowercased()
         
         // Ultra 4K60: solo los chips A17 Pro / A18 en adelante

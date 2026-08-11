@@ -12,6 +12,7 @@ class ViewController: UIViewController {
     let playButton = UIButton(type: .custom)
     let libraryButton = UIButton(type: .custom)
     let settingsButton = UIButton(type: .custom)
+    let proButton = UIButton(type: .custom)
     let progressView = UIView()
     let progressFill = UIView()
     
@@ -99,6 +100,16 @@ class ViewController: UIViewController {
         settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
         view.addSubview(settingsButton)
         
+        proButton.frame = CGRect(x: 0, y: 0, width: 90, height: 40)
+        proButton.center = CGPoint(x: view.bounds.width - 85, y: view.bounds.height - 180)
+        proButton.setTitle("PRO", for: .normal)
+        proButton.setTitleColor(.black, for: .normal)
+        proButton.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .bold)
+        proButton.backgroundColor = .white
+        proButton.layer.cornerRadius = 20
+        proButton.addTarget(self, action: #selector(openPaywall), for: .touchUpInside)
+        view.addSubview(proButton)
+        
         progressView.frame = CGRect(x: 0, y: view.bounds.height - 20, width: view.bounds.width, height: 2)
         progressView.backgroundColor = UIColor.white.withAlphaComponent(0.3)
         
@@ -133,6 +144,10 @@ class ViewController: UIViewController {
     
     @objc private func openSettings() {
         viewModel.showSettings = true
+    }
+    
+    @objc private func openPaywall() {
+        viewModel.showPaywall = true
     }
 }
 

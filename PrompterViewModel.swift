@@ -18,6 +18,8 @@ class PrompterViewModel: ObservableObject {
     @Published var lastVideoURL: URL?
     @Published var showScriptLibrary: Bool = false
     @Published var showSettings: Bool = false
+    @Published var showPaywall: Bool = false
+    @Published var isPremium: Bool = false
     
     let videoEngine = VideoEngine()
     let audioEngine = AudioEngine()
@@ -33,7 +35,17 @@ class PrompterViewModel: ObservableObject {
     
     init() {
         setupBindings()
-        resolutionLabel = VideoPresetResolver.resolve().name
+        refreshResolution()
+    }
+    
+    func setPremium(_ enabled: Bool) {
+        isPremium = enabled
+        videoEngine.isPremium = enabled
+        refreshResolution()
+    }
+    
+    private func refreshResolution() {
+        resolutionLabel = VideoPresetResolver.resolve(isPremium: isPremium).name
     }
     
     private func setupBindings() {
@@ -111,6 +123,8 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
     }
     
     private func startRecording() {
+        videoEngine.isPremium = isPremium
+        
         let filename = "Prompter_\(Int(Date().timeIntervalSince1970)).mov"
         let outputUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(filename)
@@ -138,11 +152,19 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             self.isPlaying = false
             self.scrollEngine.setSpeed(0)
             
-            if let url = url {
-                VideoSaver.shared.saveToLibrary(videoURL: url) { ok, message in
+            guard let url = url else {
+                self.errorMessage = "Fallo al finalizar la grabacion"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+                return
+            }
+            
+            let finalize: (URL) -> Void = { [weak self] finalURL in
+                guard let self = self else { return }
+                VideoSaver.shared.saveToLibrary(videoURL: finalURL) { ok, message in
                     if ok {
-                        self.lastVideoURL = url
-                        self.statusMessage = "Video guardado en tu galeria"
+                        self.lastVideoURL = finalURL
+                        self.statusMessage = self.isPremium ? "Video guardado en tu galeria" : "Video guardado (marca de agua)"
                         let generator = UINotificationFeedbackGenerator()
                         generator.notificationOccurred(.success)
                     } else {
@@ -151,10 +173,14 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
                         generator.notificationOccurred(.error)
                     }
                 }
+            }
+            
+            if isPremium {
+                finalize(url)
             } else {
-                self.errorMessage = "Fallo al finalizar la grabacion"
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.error)
+                Watermarker.applyWatermark(to: url) { watermarked in
+                    finalize(watermarked ?? url)
+                }
             }
         }
     }

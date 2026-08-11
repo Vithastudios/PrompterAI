@@ -1,77 +1,65 @@
 # AUDIT — Prompter AI v2.0 → Nivel "Dios"
 
-> Fecha: 2026-08-10
+> Fecha: 2026-08-10 / Actualizado: 2026-08-11
 > Estado: Auditoría realizada sobre el código real.
 > Objetivo: llevar el sistema a 100% producción / "nivel dios".
 
 ---
 
-## 🔴 BLOQUEANTES (no compila hoy)
+## 🔴 BLOQUEANTES
 
-- [ ] **B1**. Crear `.xcodeproj` (en Xcode, en Mac)
-- [ ] **B2**. Crear modelo CoreData `.xcdatamodeld` con `ScriptEntity`
-      → hoy `DataManager` crashea en runtime: "no model PrompterAI"
-      (Managers/DataManager.swift:8)
-- [ ] **B3**. `fetchScripts` ordena por `updatedAt` que nunca se setea → orden
-      inestable (Managers/DataManager.swift:50,35). Setear `updatedAt` en create/update.
+- [ ] **B1**. Crear `.xcodeproj` (en Xcode, en Mac) — ver `MOUNTING_GUIDE.md`
+- [x] **B2**. Modelo CoreData `.xcdatamodeld` con `ScriptEntity` creado y añadido.
+- [x] **B3**. `updatedAt` se setea en create/update → orden estable.
 
-## 🟠 GRANDES FALLAS DE ARQUITECTURA
+## 🟠 ARQUITECTURA
 
-- [ ] **F1. Posición única de lectura.** `NeuralFlowEngine.currentIndex` y
-      `ScrollEngine.contentOffset` no están sincronizados → tras drag manual o
-      error de voz, texto y índice divergen sin recuperación.
-      → Fuente de verdad única: posición del texto visible; el reconocimiento
-      mapea a esa posición. (TimestampedText + highlight)
-- [ ] **F2. La grabación no tiene audio.** El micrófono lo monopoliza el
-      reconocimiento de voz (AVAudioEngine en modo `.record`); el video sale mudo.
-      → Una sola captura de audio enrutada a SFSpeechAudioBufferRecognitionRequest
-      Y a la pista de audio del AVAssetWriter.
-- [ ] **F3. El "IA" es un cursor con heurística.** `findMatchIndex` solo busca
-      hacia adelante 10 palabras, requiere coincidencia exacta, y `currentIndex`
-      solo avanza si `energy > 0.3` (hablar bajito = no avanza).
-      → Matching fuzzy (Levenshtein), bidireccional, avance por scroll offset.
-- [ ] **F4. Freemium no se aplica.** Marca de agua "Prompter AI Free" es overlay
-      de UI, NO está grabada en el video. VideoEngine graba 4K siempre.
-      → Watermark quemado en el frame en free; 1080p free / 4K pro.
+- [ ] **F1. Posición única de lectura.** Existe `syncPosition` + matching fuzzy
+      bidireccional, pero falta: highlight de la palabra activa + timestamped
+      sincronización fina con el offset de scroll. (Parcial)
+- [x] **F2. Audio en la grabación.** Captura única de mic enrutada a
+      `SFSpeechAudioBufferRecognitionRequest` Y a la pista de audio del
+      `AVAssetWriter`. (Hecho 2026-08-10)
+- [x] **F3. Matching fuzzy + bidireccional + avance por offset.** Implementado
+      con Levenshtein y ventanas de búsqueda. (Hecho en fases 2a/2b)
+- [x] **F4. Freemium real.** Marca de agua quemada en video (free) vía
+      `Watermarker` + tiers 1080p30 free / calidad por hardware pro.
+      Botón PRO + Paywall conectado.
 
-## 🟡 FALLAS TÁCTICAS (arregladas el 2026-08-10)
+## 🟡 TÁCTICAS
 
-- [x] Pausa por puntuación (era código muerto) — `predictPauseNeeded`
-- [x] Scroll manual (UIPanGestureRecognizer no hacía nada)
+- [x] Pausa por puntuación — `predictPauseNeeded`
+- [x] Scroll manual (UIPanGestureRecognizer)
 - [x] Video desorientado — rotación + mirror front cam
-
-Pendientes:
-- [ ] `energyThreshold = 0.05` fijo, sin calibrar. Resultados parciales duplican
-      la misma palabra → falta dedupe / timestamp.
-- [ ] La grabación se guarda solo en `Documents`; nunca se guarda en Fotos aunque
-      Info.plist ya tiene `NSPhotoLibraryAddUsageDescription`. No hay lista de
-      videos ni export.
-- [ ] No hay UI para importar guión (el placeholder dice "Toca el botón +"),
-      ni settings (font size/color existen en ViewModel sin UI), ni lista de guiones.
-- [ ] 4K60 H.264 50Mbps fijo → sobrecalienta/derruba frames en iPhones viejos.
-      → Presets adaptativos por dispositivo.
-- [ ] `handleTransaction(.failed)` desactiva premium innecesariamente.
-- [ ] Reconocimiento de voz hardcodeado a `es-ES` → i18n.
-- [ ] Manejo de errores: alertas reales, no `print`.
-
----
+- [x] `energyThreshold` calibrado adaptativamente (piso de ruido móvil/EAM)
+- [x] Guardar video en Fotos (PHPhotoLibrary) + feedback UI
+- [x] UI importar/lista/editar guiones (CoreData) + settings (fuente/color/idioma)
+- [x] Presets adaptativos por dispositivo (4K60/1080p60/1080p30)
+- [x] `handleTransaction(.failed)` ya no desactiva premium; verifyStatus idempotente
+- [x] i18n idioma de voz seleccionable (Settings)
+- [x] Manejo de errores en UI (alertas) — ya no solo `print`
 
 ## 🚀 PLAN A 100% (orden de impacto)
 
-**Fase 1 — Compilar y estable**
-1. xcdatamodeld + setear `updatedAt` (B2, B3)
-2. Manejo de errores real (alertas)
+**Fase 1 — Compilar y estable** ✅ salvo `.xcodeproj`
+- xcdatamodeld + updatedAt ✅
+- Manejo de errores real ✅
 
-**Fase 2 — Núcleo de valor**
-3. F1: fuente de verdad única + highlight
-4. F3: matching fuzzy + bidireccional + avance por offset
-5. F2: audio en la grabación (captura única)
-6. Presets adaptativos por dispositivo
+**Fase 2 — Núcleo** ✅
+- Audio en grabación ✅ · Presets adaptativos ✅ · Matching fuzzy ✅
 
-**Fase 3 — Producto**
-7. Guardar en Fotos + lista/export de videos
-8. Importar guión + editor + settings UI
-9. Freemium real: watermark quemado + tiers
+**Fase 3 — Producto** (parcial)
+- Guardar en Fotos ✅ · Importar/lista/editor/settings ✅
+- Falta: lista/export de videos · **Freemium real (watermark + tiers)**
 
-**Fase 4 — Polishing**
-10. Dedupe de palabras, calibración RMS, telemetría, i18n
+**Fase 4 — Polishing** ✅
+- Dedupe/calibración RMS ✅ · i18n ✅ · fix SubscriptionManager ✅
+
+---
+
+## PENDIENTE (próximo)
+
+- [ ] F1: highlight de palabra activa + sincronización fina
+- [ ] F4: freemium real (watermark quemado + tiers free/pro)
+- [ ] Lista/export de videos grabados
+- [ ] Compilar en Xcode (B1) y probar en dispositivo real

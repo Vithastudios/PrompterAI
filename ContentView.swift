@@ -7,8 +7,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             ViewControllerRepresentable(viewModel: viewModel)
-                .ignoresSafeArea()
-            
+                .ignoresSafeArea()            
             if !subscriptionManager.isPremium {
                 VStack {
                     Spacer()
@@ -30,6 +29,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $viewModel.showSettings) {
             SettingsView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.showPaywall) {
+            PaywallView().environmentObject(subscriptionManager)
         }
         .alert("Atencion", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
@@ -59,6 +61,12 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            viewModel.setPremium(subscriptionManager.isPremium)
+        }
+        .onChange(of: subscriptionManager.isPremium) { _, isPremium in
+            viewModel.setPremium(isPremium)
         }
     }
 }
