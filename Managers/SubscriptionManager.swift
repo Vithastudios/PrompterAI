@@ -9,17 +9,15 @@ class SubscriptionManager: ObservableObject {
     @Published var errorMessage: String?
     
     private let premiumProductID = "com.vithastudios.premium_lifetime"
-    
-    init() {
-        Task {
-            await verifyStatus()
-        }
-    }
+    private var hasVerified = false
     
     func verifyStatus() async {
-        Task {
+        guard !hasVerified else { return }
+        hasVerified = true
+        
+        Task { [weak self] in
             for await result in Transaction.updates {
-                handleTransaction(result)
+                self?.handleTransaction(result)
             }
         }
         
@@ -82,8 +80,9 @@ class SubscriptionManager: ObservableObject {
             Task {
                 await transaction.finish()
             }
-case .failed(let error):
-            errorMessage = "Verificacion de recibo con errores: \(error.localizedDescription)"
+        case .failed(let error):
+            // Un fallo de verificacion de un producto no debe desactivar premium.
+            print("Transaccion no verificada: \(error.localizedDescription)")
         }
     }
 }

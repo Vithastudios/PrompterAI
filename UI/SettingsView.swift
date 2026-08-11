@@ -12,6 +12,17 @@ struct SettingsView: View {
         ("Cian", .cyan)
     ]
     
+    private let languages: [(String, String)] = [
+        ("Espanol", "es-ES"),
+        ("Espanol (Latinoamerica)", "es-MX"),
+        ("Ingles (EE.UU.)", "en-US"),
+        ("Ingles (UK)", "en-GB"),
+        ("Frances", "fr-FR"),
+        ("Italiano", "it-IT"),
+        ("Portugues", "pt-BR"),
+        ("Aleman", "de-DE")
+    ]
+    
     var body: some View {
         NavigationView {
             Form {
@@ -44,6 +55,18 @@ struct SettingsView: View {
                             }
                         }
                     }
+                }
+                
+                Section("Idioma del reconocimiento de voz") {
+                    Picker("Idioma", selection: Binding(
+                        get: { viewModel.audioEngine.currentLocaleIdentifier },
+                        set: { viewModel.audioEngine.updateLocale($0) }
+                    )) {
+                        ForEach(languages, id: \.1) { lang in
+                            Text(lang.0).tag(lang.1)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
                 }
             }
             .navigationTitle("Configuracion")

@@ -35,6 +35,17 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
         }
     }
     
+    private static func capturePreset() -> AVCaptureSession.Preset {
+        let preset = VideoPresetResolver.resolve()
+        if preset.width >= 3840 {
+            return .hd4K3840x2160
+        } else if preset.height >= 1080 {
+            return .hd1920x1080
+        } else {
+            return .hd1280x720
+        }
+    }
+    
     private func configureSession(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
         sessionQueue.async { [weak self] in
             guard let self = self else {
@@ -44,7 +55,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             
             let session = AVCaptureSession()
             session.beginConfiguration()
-            session.sessionPreset = .hd4K3840x2160
+            session.sessionPreset = Self.capturePreset()
             
             let audioSession = AVAudioSession.sharedInstance()
             do {
@@ -127,16 +138,15 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             do {
                 let writer = try AVAssetWriter(outputURL: outputUrl, fileType: .mov)
                 
-                let videoWidth = 3840
-                let videoHeight = 2160
+                let preset = VideoPresetResolver.resolve()
                 
                 let videoSettings: [String: Any] = [
-                    AVVideoCodecKey: AVVideoCodecType.h264,
-                    AVVideoWidthKey: videoWidth,
-                    AVVideoHeightKey: videoHeight,
+                    AVVideoCodecKey: preset.codec,
+                    AVVideoWidthKey: preset.width,
+                    AVVideoHeightKey: preset.height,
                     AVVideoCompressionPropertiesKey: [
-                        AVVideoAverageBitRateKey: 50_000_000,
-                        AVVideoExpectedFrameRateKey: 60
+                        AVVideoAverageBitRateKey: preset.bitRate,
+                        AVVideoExpectedSourceFrameRateKey: preset.frameRate
                     ]
                 ]
                 

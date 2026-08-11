@@ -11,17 +11,38 @@ class AudioEngine: NSObject, ObservableObject {
     var onWordDetected: ((String, Float) -> Void)?
     var onEnergyUpdate: ((Float) -> Void)?
     
-    private let speechRecognizer: SFSpeechRecognizer?
+    private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     
     private let energyThreshold: Float = 0.05
     private let maxFrameCapacity: AVAudioFrameCount = 4096
     private let lock = NSLock()
+    private var noiseFloor: Float = 0.02
+    private let noiseFloorSmoothing: Float = 0.05
+    
+    @Published var currentLocaleIdentifier: String = "es-ES"
     
     override init() {
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
         super.init()
+    }
+    
+    func updateLocale(_ identifier: String) {
+        let newRecognizer = SFSpeechRecognizer(locale: Locale(identifier: identifier))
+        guard newRecognizer?.isAvailable == true else { return }
+        
+        lock.lock()
+        isListening = false
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        speechRecognizer = newRecognizer
+        lock.unlock()
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.currentLocaleIdentifier = identifier
+        }
     }
     
     deinit {
@@ -123,11 +144,24 @@ class AudioEngine: NSObject, ObservableObject {
         vDSP_sve(squared, 1, &sum, vDSP_Length(frameLength))
         
         let rms = sqrt(sum / Float(frameLength))
-        let normalizedEnergy = min(rms * 10.0, 1.0)
+        
+        // Calibracion adaptativa: mantiene un piso de ruido en movimiento
+        // para que hablar bajito siga siendo detectado.
+        if rms < noiseFloor {
+            noiseFloor = noiseFloor * (1 - noiseFloorSmoothing) + rms * noiseFloorSmoothing
+        } else {
+            noiseFloor = noiseFloor * (1 - noiseFloorSmoothing * 0.5) + rms * noiseFloorSmoothing * 0.5
+        }
+        
+        let gain: Float = 10.0
+        let raw = min(rms * gain, 1.0)
+        // Brillo relativo por encima del piso de ruido, con tope en 1.0
+        let normalizedEnergy = min(max((rms - noiseFloor) / max(noiseFloor, 0.01) * 1.5, 0.0), 1.0)
+        let combined = max(raw, normalizedEnergy)
         
         DispatchQueue.main.async { [weak self] in
-            self?.audioEnergy = normalizedEnergy
-            self?.onEnergyUpdate?(normalizedEnergy)
+            self?.audioEnergy = combined
+            self?.onEnergyUpdate?(combined)
         }
     }
     

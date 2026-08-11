@@ -14,6 +14,7 @@ class PrompterViewModel: ObservableObject {
     @Published var textColor: UIColor = .white
     @Published var errorMessage: String?
     @Published var statusMessage: String?
+    @Published var resolutionLabel: String = "1080p30"
     @Published var lastVideoURL: URL?
     @Published var showScriptLibrary: Bool = false
     @Published var showSettings: Bool = false
@@ -32,6 +33,7 @@ class PrompterViewModel: ObservableObject {
     
     init() {
         setupBindings()
+        resolutionLabel = VideoPresetResolver.resolve().name
     }
     
     private func setupBindings() {
