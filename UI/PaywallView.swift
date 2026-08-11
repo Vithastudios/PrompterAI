@@ -91,12 +91,11 @@ struct PaywallView: View {
         }
     }
     
-    // Reemplazar por las URLs reales una vez publicadas.
     private var termsURL: URL {
-        URL(string: "https://www.vithastudios.com/terms")!
+        URL(string: "https://www.vithastudios.com/sistemas/erp/terms")!
     }
     private var privacyURL: URL {
-        URL(string: "https://www.vithastudios.com/privacy")
+        URL(string: "https://www.vithastudios.com/sistemas/erp/privacy")
     }
 }
 
