@@ -1,7 +1,6 @@
 ﻿import AVFoundation
 import Speech
 import Accelerate
-import Combine
 
 class AudioEngine: NSObject, ObservableObject {
     
@@ -12,13 +11,12 @@ class AudioEngine: NSObject, ObservableObject {
     var onWordDetected: ((String, Float) -> Void)?
     var onEnergyUpdate: ((Float) -> Void)?
     
-    private let audioEngine = AVAudioEngine()
     private let speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     
-    private let bufferSize: AVAudioFrameCount = 1024
     private let energyThreshold: Float = 0.05
+    private let maxFrameCapacity: AVAudioFrameCount = 4096
     
     override init() {
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
@@ -33,13 +31,12 @@ class AudioEngine: NSObject, ObservableObject {
         guard !isListening else { return }
         
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            guard status == .authorized else {
-                print("Permiso de voz denegado")
-                return
-            }
             DispatchQueue.main.async {
-                self?.setupAudioSession()
-                self?.startRecognition()
+                guard status == .authorized else {
+                    print("Permiso de voz denegado")
+                    return
+                }
+                self?.configureRecognition()
             }
         }
     }
@@ -49,24 +46,17 @@ class AudioEngine: NSObject, ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
+    }
+    
+    func consumeSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        guard isListening,
+              let pcm = Self.pcmBuffer(from: sampleBuffer) else { return }
         
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        recognitionRequest?.append(pcm)
+        processAudioBuffer(pcm)
     }
     
-    private func setupAudioSession() {
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Error AudioSession: \(error.localizedDescription)")
-        }
-    }
-    
-    private func startRecognition() {
+    private func configureRecognition() {
         guard let speechRecognizer = speechRecognizer,
               speechRecognizer.isAvailable else {
             print("SpeechRecognizer no disponible")
@@ -80,36 +70,21 @@ class AudioEngine: NSObject, ObservableObject {
         
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.addsPunctuation = true
+        recognitionRequest.taskHint = .dictation
         
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        isListening = true
         
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: recordingFormat) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-            self?.processAudioBuffer(buffer)
-        }
-        
-        audioEngine.prepare()
-        
-        do {
-            try audioEngine.start()
-            isListening = true
-            
-            recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-                if let result = result {
-                    let spokenText = result.bestTranscription.formattedString
-                    DispatchQueue.main.async {
-                        self?.handleSpeechResult(spokenText)
-                    }
-                }
-                
-                if error != nil || (result?.isFinal ?? false) {
-                    self?.stopListening()
+        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            if let result = result {
+                let spokenText = result.bestTranscription.formattedString
+                DispatchQueue.main.async {
+                    self?.handleSpeechResult(spokenText)
                 }
             }
-        } catch {
-            print("Error iniciando reconocimiento: \(error.localizedDescription)")
-            stopListening()
+            
+            if error != nil || (result?.isFinal ?? false) {
+                self?.stopListening()
+            }
         }
     }
     
@@ -118,6 +93,7 @@ class AudioEngine: NSObject, ObservableObject {
         
         let channelDataValue = channelData.pointee
         let samples = UnsafeBufferPointer(start: channelDataValue, count: Int(buffer.frameLength))
+        guard samples.isEmpty == false else { return }
         
         var sum: Float = 0.0
         vDSP_vsq(samples.baseAddress!, 1, samples.baseAddress!, 1, vDSP_Length(samples.count))
@@ -141,5 +117,33 @@ class AudioEngine: NSObject, ObservableObject {
         
         currentWord = lastWord
         onWordDetected?(lastWord, audioEnergy)
+    }
+    
+    private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let format = AVAudioFormat(cmAudioFormatDescription: formatDescription) else {
+            return nil
+        }
+        
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frameCount > 0 else { return nil }
+        
+        guard let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            return nil
+        }
+        pcm.frameLength = frameCount
+        
+        var blockBuffer: CMBlockBuffer?
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: pcm.mutableAudioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            blockBufferOut: &blockBuffer
+        )
+        
+        return status == noErr ? pcm : nil
     }
 }

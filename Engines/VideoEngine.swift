@@ -1,20 +1,40 @@
 ﻿import AVFoundation
 import UIKit
 
-class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     
     var captureSession: AVCaptureSession?
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
+    private var audioInput: AVAssetWriterInput?
     private var videoOutput: AVCaptureVideoDataOutput?
+    private var audioOutput: AVCaptureAudioDataOutput?
     
+    var onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
     var isRecording: Bool = false
     private var startTime: CMTime = .invalid
     
     private let sessionQueue = DispatchQueue(label: "com.vithastudios.videoSessionQueue")
     private let videoQueue = DispatchQueue(label: "com.vithastudios.videoQueue")
+    private let audioQueue = DispatchQueue(label: "com.vithastudios.audioQueue")
     
     func setupCamera(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
+        AVCaptureDevice.requestAccess(for: .video) { videoGranted in
+            guard videoGranted else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            AVCaptureDevice.requestAccess(for: .audio) { audioGranted in
+                guard audioGranted else {
+                    DispatchQueue.main.async { completion(false) }
+                    return
+                }
+                self.configureSession(previewLayer: previewLayer, completion: completion)
+            }
+        }
+    }
+    
+    private func configureSession(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
         sessionQueue.async { [weak self] in
             guard let self = self else {
                 DispatchQueue.main.async { completion(false) }
@@ -25,13 +45,22 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             session.beginConfiguration()
             session.sessionPreset = .hd4K3840x2160
             
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-                  let input = try? AVCaptureDeviceInput(device: camera),
-                  session.canAddInput(input) else {
+            let audioSession = AVAudioSession.sharedInstance()
+            do {
+                try audioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
+                try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            } catch {
                 DispatchQueue.main.async { completion(false) }
                 return
             }
-            session.addInput(input)
+            
+            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+                  let videoDeviceInput = try? AVCaptureDeviceInput(device: camera),
+                  session.canAddInput(videoDeviceInput) else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            session.addInput(videoDeviceInput)
             
             DispatchQueue.main.async {
                 previewLayer.session = session
@@ -55,9 +84,23 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 }
             }
             
+            if let mic = AVCaptureDevice.default(.builtInMicrophone, for: .audio, position: .unspecified),
+               let audioDeviceInput = try? AVCaptureDeviceInput(device: mic),
+               session.canAddInput(audioDeviceInput) {
+                session.addInput(audioDeviceInput)
+            }
+            
+            let audioOutput = AVCaptureAudioDataOutput()
+            audioOutput.setSampleBufferDelegate(self, queue: self.audioQueue)
+            
+            if session.canAddOutput(audioOutput) {
+                session.addOutput(audioOutput)
+            }
+            
             session.commitConfiguration()
             self.captureSession = session
             self.videoOutput = videoOutput
+            self.audioOutput = audioOutput
             
             session.startRunning()
             DispatchQueue.main.async { completion(true) }
@@ -82,10 +125,13 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             do {
                 let writer = try AVAssetWriter(outputURL: outputUrl, fileType: .mov)
                 
+                let videoWidth = 3840
+                let videoHeight = 2160
+                
                 let videoSettings: [String: Any] = [
                     AVVideoCodecKey: AVVideoCodecType.h264,
-                    AVVideoWidthKey: 3840,
-                    AVVideoHeightKey: 2160,
+                    AVVideoWidthKey: videoWidth,
+                    AVVideoHeightKey: videoHeight,
                     AVVideoCompressionPropertiesKey: [
                         AVVideoAverageBitRateKey: 50_000_000,
                         AVVideoExpectedFrameRateKey: 60
@@ -95,9 +141,23 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
                 videoInput.expectsMediaDataInRealTime = true
                 
+                let audioSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44_100,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 128_000
+                ]
+                
+                let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                audioInput.expectsMediaDataInRealTime = true
+                
                 if writer.canAdd(videoInput) {
                     writer.add(videoInput)
                     self.videoInput = videoInput
+                }
+                if writer.canAdd(audioInput) {
+                    writer.add(audioInput)
+                    self.audioInput = audioInput
                 }
                 
                 self.assetWriter = writer
@@ -120,10 +180,12 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             
             self.isRecording = false
             self.videoInput?.markAsFinished()
+            self.audioInput?.markAsFinished()
             
             self.assetWriter?.finishWriting {
                 self.assetWriter = nil
                 self.videoInput = nil
+                self.audioInput = nil
                 self.startTime = .invalid
                 DispatchQueue.main.async { completion() }
             }
@@ -131,6 +193,16 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if output === self.audioOutput {
+            self.onAudioSampleBuffer?(sampleBuffer)
+            
+            guard isRecording,
+                  let audioInput = audioInput,
+                  audioInput.isReadyForMoreMediaData else { return }
+            audioInput.append(sampleBuffer)
+            return
+        }
+        
         guard isRecording,
               let videoInput = videoInput,
               videoInput.isReadyForMoreMediaData else { return }

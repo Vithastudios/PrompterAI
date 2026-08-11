@@ -63,9 +63,13 @@ class PrompterViewModel: ObservableObject {
         }
     }
     
-    func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
+func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
         self.textView = textView
         self.previewLayer = previewLayer
+        
+        videoEngine.onAudioSampleBuffer = { [weak audioEngine] sampleBuffer in
+            audioEngine?.consumeSampleBuffer(sampleBuffer)
+        }
         
         textView.font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         textView.textColor = textColor
@@ -79,14 +83,17 @@ class PrompterViewModel: ObservableObject {
     private func startEngines() {
         guard let preview = previewLayer else { return }
         
+        neuralEngine.loadScript(scriptText)
+        
         videoEngine.setupCamera(previewLayer: preview) { [weak self] success in
-            if !success {
-                self?.errorMessage = "Error al iniciar camara."
+            guard let self = self else { return }
+            
+            if success {
+                self.audioEngine.startListening()
+            } else {
+                self.errorMessage = "Error al iniciar camara."
             }
         }
-        
-        audioEngine.startListening()
-        neuralEngine.loadScript(scriptText)
     }
     
     func toggleRecording() {
@@ -140,7 +147,6 @@ let generator = UINotificationFeedbackGenerator()
             scrollEngine.setSpeed(0)
         }
     }
-    
     func didStartManualScroll() {
         isManualDragging = true
         scrollEngine.handleManualDragBegan()
