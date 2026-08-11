@@ -18,6 +18,11 @@ Teleprompter profesional con IA Predictiva para iOS.
 - CoreData (guiones locales)
 - StoreKit 2
 
+## Documentacion
+
+- `MANUAL_DE_USO.md` — como usar la app (raiz del repo).
+- `MOUNTING_GUIDE.md` — como montar y compilar en Xcode.
+
 ## Autor
 
 VithaStudios
