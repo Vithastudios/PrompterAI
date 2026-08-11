@@ -33,7 +33,7 @@ struct PaywallView: View {
                 VStack(spacing: 15) {
                     FeatureRow(icon: "camera.fill", text: "Video 4K a 60fps")
                     FeatureRow(icon: "mic.fill", text: "Control por Voz IA")
-                    FeatureRow(icon: "icloud.fill", text: "Sincronizacion iCloud")
+                    FeatureRow(icon: "icloud.fill", text: "Guiones guardados localmente")
                     FeatureRow(icon: "xmark.circle.fill", text: "Sin Marca de Agua")
                 }
                 .padding(.top, 20)

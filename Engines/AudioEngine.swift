@@ -17,6 +17,7 @@ class AudioEngine: NSObject, ObservableObject {
     
     private let energyThreshold: Float = 0.05
     private let maxFrameCapacity: AVAudioFrameCount = 4096
+    private let lock = NSLock()
     
     override init() {
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
@@ -28,7 +29,10 @@ class AudioEngine: NSObject, ObservableObject {
     }
     
     func startListening() {
-        guard !isListening else { return }
+        lock.lock()
+        let alreadyListening = isListening
+        lock.unlock()
+        guard !alreadyListening else { return }
         
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             DispatchQueue.main.async {
@@ -42,17 +46,27 @@ class AudioEngine: NSObject, ObservableObject {
     }
     
     func stopListening() {
+        lock.lock()
         isListening = false
-        recognitionTask?.cancel()
+        let task = recognitionTask
         recognitionTask = nil
         recognitionRequest = nil
+        lock.unlock()
+        
+        task?.cancel()
     }
     
     func consumeSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard isListening,
-              let pcm = Self.pcmBuffer(from: sampleBuffer) else { return }
+        let pcm = Self.pcmBuffer(from: sampleBuffer)
         
-        recognitionRequest?.append(pcm)
+        lock.lock()
+        let isActive = isListening
+        let request = recognitionRequest
+        lock.unlock()
+        
+        guard isActive, let pcm = pcm else { return }
+        
+        request?.append(pcm)
         processAudioBuffer(pcm)
     }
     
@@ -63,18 +77,22 @@ class AudioEngine: NSObject, ObservableObject {
             return
         }
         
+        lock.lock()
         recognitionTask?.cancel()
-        
+        recognitionTask = nil
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else { return }
+        let request = recognitionRequest
+        lock.unlock()
         
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.addsPunctuation = true
-        recognitionRequest.taskHint = .dictation
+        guard let request = request else { return }
         
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        request.taskHint = .dictation
+        
+        lock.lock()
         isListening = true
-        
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+        let task = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result = result {
                 let spokenText = result.bestTranscription.formattedString
                 DispatchQueue.main.async {
@@ -86,20 +104,25 @@ class AudioEngine: NSObject, ObservableObject {
                 self?.stopListening()
             }
         }
+        recognitionTask = task
+        lock.unlock()
     }
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData else { return }
         
         let channelDataValue = channelData.pointee
-        let samples = UnsafeBufferPointer(start: channelDataValue, count: Int(buffer.frameLength))
-        guard samples.isEmpty == false else { return }
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return }
+        
+        let squared = UnsafeMutablePointer<Float>.allocate(capacity: frameLength)
+        defer { squared.deallocate() }
         
         var sum: Float = 0.0
-        vDSP_vsq(samples.baseAddress!, 1, samples.baseAddress!, 1, vDSP_Length(samples.count))
-        vDSP_sve(samples.baseAddress!, 1, &sum, vDSP_Length(samples.count))
+        vDSP_vsq(channelDataValue, 1, squared, 1, vDSP_Length(frameLength))
+        vDSP_sve(squared, 1, &sum, vDSP_Length(frameLength))
         
-        let rms = sqrt(sum / Float(samples.count))
+        let rms = sqrt(sum / Float(frameLength))
         let normalizedEnergy = min(rms * 10.0, 1.0)
         
         DispatchQueue.main.async { [weak self] in

@@ -1,22 +1,12 @@
 ﻿import CoreData
-import CloudKit
 
 class DataManager {
     static let shared = DataManager()
     
     var onError: ((String) -> Void)?
     
-    lazy var persistentContainer: NSPersistentCloudKitContainer = {
-        let container = NSPersistentCloudKitContainer(name: "PrompterAI")
-        
-        if let description = container.persistentStoreDescriptions.first {
-            description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-            description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-            
-            description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
-                containerIdentifier: "iCloud.com.vithastudios.teleprompter"
-            )
-        }
+    lazy var persistentContainer: NSPersistentContainer = {
+        let container = NSPersistentContainer(name: "PrompterAI")
         
         container.loadPersistentStores { [weak self] _, error in
             if let error = error {
