@@ -57,6 +57,9 @@ class ViewController: UIViewController {
         textView.showsVerticalScrollIndicator = false
         textView.isEditable = false
         textView.delegate = self
+        // Desactivar layout no contiguo para que los temporary attributes (highlight
+        // de la palabra activa) se apliquen de forma confiable en todo el rango.
+        textView.layoutManager.allowsNonContiguousLayout = false
         
         gradientMask.colors = [
             UIColor.clear.cgColor,

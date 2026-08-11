@@ -33,6 +33,8 @@ class PrompterViewModel: ObservableObject {
     
     var isManualDragging = false
     private var cancellables = Set<AnyCancellable>()
+    private var activeWordIndex: Int = -1
+    private var suppressCentering = false
     
     init() {
         setupBindings()
@@ -82,6 +84,14 @@ class PrompterViewModel: ObservableObject {
                     self.scrollEngine.setSpeed(self.currentSpeed)
                 }
             }
+        }
+        
+        // F1: highlight de la palabra activa + sincronizacion fina. onPositionChanged
+        // ya se dispara en main (ver NeuralFlowEngine).
+        neuralEngine.onPositionChanged = { [weak self] index in
+            guard let self = self else { return }
+            self.highlightWord(at: index)
+            self.keepActiveWordVisible(at: index)
         }
     }
     
@@ -223,7 +233,14 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
         isManualDragging = false
         scrollEngine.handleManualDragEnded()
         
+        // Evitar que la sincronizacion fina mueva el scroll que el usuario acaba de
+        // posicionar deliberadamente. El onPositionChanged (dispatch a main) llega en el
+        // proximo runloop, dentro de esta ventana.
+        suppressCentering = true
         syncReadingPosition()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.suppressCentering = false
+        }
         
         if isPlaying {
             scrollEngine.setSpeed(currentSpeed)
@@ -258,6 +275,78 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
         return max(0, words.count - 1)
     }
     
+    // Devuelve el NSRange UTF-16 de la palabra en `wordIndex`. Usa el offset calculado
+    // por NeuralFlowEngine (misma regla de tokenizacion) para que el highlight quede
+    // perfectamente sincronizado con el matching por voz.
+    private func range(ofWordAtIndex wordIndex: Int) -> NSRange? {
+        guard let offset = neuralEngine.characterOffset(forWordIndex: wordIndex) else { return nil }
+        let nsText = scriptText as NSString
+        guard offset < nsText.length else { return nil }
+        
+        let endOfWord = nsText.rangeOfCharacter(
+            from: .whitespacesAndNewlines,
+            options: [],
+            range: NSRange(location: offset, length: nsText.length - offset)
+        )
+        let end = endOfWord.location == NSNotFound ? nsText.length : endOfWord.location
+        let length = end - offset
+        guard length > 0 else { return nil }
+        return NSRange(location: offset, length: length)
+    }
+    
+    // F1: resalta la palabra activa usando temporary attributes (sin re-renderizar
+    // todo el texto). Se limpia el resaltado previo y se aplica el nuevo.
+    private func highlightWord(at index: Int) {
+        guard let textView = textView, index != activeWordIndex else { return }
+        
+        let layoutManager = textView.layoutManager
+        let wasHighlighted = activeWordIndex >= 0
+        
+        // Limpiar el resaltado previo.
+        if wasHighlighted, let old = range(ofWordAtIndex: activeWordIndex) {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: old)
+        }
+        
+        // Aplicar el nuevo resaltado.
+        if let current = range(ofWordAtIndex: index) {
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.45), forCharacterRange: current)
+        } else if wasHighlighted {
+            // Palabra nueva no localizada: al menos dejamos limpio el anterior.
+            layoutManager.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: (scriptText as NSString).length))
+        }
+        
+        activeWordIndex = index
+    }
+    
+    // F1: sincronizacion fina — mantiene la palabra activa cerca del centro vertical,
+    // con scroll suave. Solo reposiciona cuando NO se esta reproduciendo (modo lectura /
+    // pausa) y cuando el cambio de posicion NO vino de un scroll manual del usuario
+    // (para no mover lo que el usuario dejo posicionado deliberadamente).
+    private func keepActiveWordVisible(at index: Int) {
+        guard let textView = textView, !isManualDragging, !isPlaying, !suppressCentering else { return }
+        
+        guard let range = range(ofWordAtIndex: index) else { return }
+        let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: range.location)
+        let rect = textView.layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: range.length),
+            in: textView.textContainer
+        )
+        
+        let targetCenter = rect.midY
+        let viewportCenter = textView.contentOffset.y + textView.bounds.height / 2
+        let threshold: CGFloat = 40
+        
+        // Solo reposicionar si se alejo del centro para no causar saltos bruscos.
+        if abs(targetCenter - viewportCenter) > threshold {
+            let targetOffset = max(0, rect.midY - textView.bounds.height / 2)
+            let maxOffset = max(0, textView.contentSize.height - textView.bounds.height)
+            let clamped = min(targetOffset, maxOffset)
+            UIView.animate(withDuration: 0.25, animations: {
+                textView.setContentOffset(CGPoint(x: 0, y: clamped), animated: false)
+            })
+        }
+    }
+    
     func updateFontSize(_ size: CGFloat) {
         fontSize = size
         textView?.font = UIFont.systemFont(ofSize: size, weight: .semibold)
@@ -274,6 +363,11 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
     
     func updateScript(_ text: String) {
         scriptText = text
+        // Limpiar resaltado previo (temporary attributes) al cambiar de guion.
+        if let textView = textView {
+            textView.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: (scriptText as NSString).length))
+        }
+        activeWordIndex = -1
         textView?.text = text
         neuralEngine.loadScript(text)
     }
@@ -303,31 +397,30 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
     
     private func restorePosition(_ wordIndex: Int) {
         guard let textView = textView, !scriptText.isEmpty else { return }
+        
+        // onPositionChanged se dispara de forma asincrona desde syncPosition; mantenemos
+        // suppressCentering activo unos ms para que el auto-centrado no pele con el scroll
+        // exacto que hacemos aqui al cargar el guion.
+        suppressCentering = true
         neuralEngine.syncPosition(to: wordIndex)
         
-        let words = scriptText.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-        guard !words.isEmpty, wordIndex >= 0, wordIndex < words.count else { return }
-        
-        // Hallar el offset UTF-16 de inicio de la palabra activa para posicionar el
-        // scroll en ella. TextKit usa offsets UTF-16, por eso contamos en UTF-16.
-        var utf16Offset = 0
-        var currentWord = 0
-        let tokens = scriptText.components(separatedBy: .whitespacesAndNewlines)
-        for token in tokens {
-            if currentWord == wordIndex { break }
-            currentWord += 1
-            utf16Offset += token.utf16.count + 1
+        guard let range = range(ofWordAtIndex: wordIndex) else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.suppressCentering = false
+            }
+            return
         }
-        
-        let bounded = min(utf16Offset, scriptText.utf16.count)
-        let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: bounded)
+        let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: range.location)
         let rect = textView.layoutManager.boundingRect(
-            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            forGlyphRange: NSRange(location: glyphIndex, length: range.length),
             in: textView.textContainer
         )
         let targetY = max(0, rect.origin.y - textView.bounds.height / 2)
         textView.setContentOffset(CGPoint(x: 0, y: targetY), animated: false)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.suppressCentering = false
+        }
     }
 
 }

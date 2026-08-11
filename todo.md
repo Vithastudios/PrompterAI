@@ -104,7 +104,9 @@ Restantes (táctica / menores):
 - [ ] A9: i18n completo (textos hard-codeados en español)
 
 Funcionalidades pendientes:
-- [ ] F1: highlight de palabra activa + sincronización fina
+- [x] F1: highlight de palabra activa + sincronización fina ✅ (temporary attributes en
+      layoutManager, `range(ofWordAtIndex:)` con offset UTF-16, `keepActiveWordVisible`
+      reposiciona suave en modo lectura, `allowsNonContiguousLayout` desactivado)
 - [ ] F4: freemium real (watermark quemado + tiers free/pro) — revisar
 - [ ] Lista/export de videos grabados
 - [ ] Compilar en Xcode (B1) y probar en dispositivo real

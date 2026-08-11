@@ -5,6 +5,7 @@ class NeuralFlowEngine {
     private let lock = NSLock()
     private(set) var scriptWords: [String] = []
     private(set) var currentIndex: Int = 0
+    private var wordOffsets: [Int] = []
     private var lastWordTime: Date?
     private var pauseDuration: TimeInterval = 0.0
     private var lastDetectedWord: String?
@@ -24,15 +25,36 @@ class NeuralFlowEngine {
     // tocan estado privado se serializan con `lock` para evitar data races.
     func loadScript(_ text: String) {
         lock.lock()
-        scriptWords = text.components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }
-            .filter { !$0.isEmpty }
+        let rawTokens = text.components(separatedBy: .whitespacesAndNewlines)
+        var offsets: [Int] = []
+        var script: [String] = []
+        var offset = 0
+        for token in rawTokens {
+            let trimmed = token.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            if !trimmed.isEmpty {
+                script.append(trimmed)
+                offsets.append(offset)
+            }
+            offset += token.utf16.count + 1
+        }
+        wordOffsets = offsets
+        scriptWords = script
         currentIndex = 0
         lastWordTime = nil
         lastDetectedWord = nil
         lastDetectedTimestamp = nil
         pauseDuration = 0.0
         lock.unlock()
+    }
+    
+    // Offset UTF-16 del inicio de la palabra en `wordIndex` dentro del texto original,
+    // calculado con la MISMA regla de tokenizacion que `scriptWords` (para que el
+    // highlight quede perfectamente sincronizado con el matching por voz).
+    func characterOffset(forWordIndex wordIndex: Int) -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard wordIndex >= 0, wordIndex < wordOffsets.count else { return nil }
+        return wordOffsets[wordIndex]
     }
     
     func processDetectedWord(_ word: String, energy: Float) {
