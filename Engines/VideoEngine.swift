@@ -21,15 +21,15 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     private let audioQueue = DispatchQueue(label: "com.vithastudios.audioQueue")
     private let writerLock = NSLock()
     
-    func setupCamera(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
+    func setupCamera(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool, DeniedPermission?) -> Void) {
         AVCaptureDevice.requestAccess(for: .video) { videoGranted in
             guard videoGranted else {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, .camera) }
                 return
             }
             AVCaptureDevice.requestAccess(for: .audio) { audioGranted in
                 guard audioGranted else {
-                    DispatchQueue.main.async { completion(false) }
+                    DispatchQueue.main.async { completion(false, .microphone) }
                     return
                 }
                 self.configureSession(previewLayer: previewLayer, completion: completion)
@@ -53,10 +53,10 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
         }
     }
     
-    private func configureSession(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool) -> Void) {
+    private func configureSession(previewLayer: AVCaptureVideoPreviewLayer, completion: @escaping (Bool, DeniedPermission?) -> Void) {
         sessionQueue.async { [weak self] in
             guard let self = self else {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, nil) }
                 return
             }
             
@@ -69,14 +69,14 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                 try audioSession.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
             } catch {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, nil) }
                 return
             }
             
             guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
                   let videoDeviceInput = try? AVCaptureDeviceInput(device: camera),
                   session.canAddInput(videoDeviceInput) else {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, nil) }
                 return
             }
             session.addInput(videoDeviceInput)
@@ -131,7 +131,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
             guard let self = self,
                   let session = self.captureSession,
                   session.isRunning else {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, nil) }
                 return
             }
             
@@ -216,7 +216,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                     self.isRecording = false
                     self.startTime = .invalid
                     writerLock.unlock()
-                    DispatchQueue.main.async { completion(false) }
+                    DispatchQueue.main.async { completion(false, nil) }
                     return
                 }
                 
@@ -224,7 +224,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                 
             } catch {
                 print("Error iniciando grabacion: \(error.localizedDescription)")
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { completion(false, nil) }
             }
         }
     }
@@ -298,4 +298,11 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
         writer.startSession(atSourceTime: startTime)
         return true
     }
+}
+
+// Permiso que el usuario denego, para mostrar un mensaje amigable y dirigir a
+// Ajustes en lugar de fallar en silencio.
+enum DeniedPermission {
+    case camera
+    case microphone
 }

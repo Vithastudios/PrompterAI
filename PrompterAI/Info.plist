@@ -35,13 +35,13 @@
     <key>UIUserInterfaceStyle</key>
     <string>Dark</string>
     <key>NSCameraUsageDescription</key>
-    <string>Necesitamos acceso a tu camara para mostrarte la vista previa en vivo mientras grabas tu video con el teleprompter.</string>
+    <string>Requerido para mostrar la vista previa en vivo y grabar tu video mientras lees el guion del teleprompter.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Necesitamos acceso al microfono para que el texto del teleprompter pueda avanzar automaticamente mientras hablas.</string>
+    <string>Requerido para capturar el audio en tu grabacion y para que el texto avance mientras hablas.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Para detectar tu voz y mover el texto automaticamente.</string>
+    <string>Requerido para reconocer tu voz y mover el texto del teleprompter automaticamente mientras lees.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>Para guardar tus videos grabados en 4K en tu galeria.</string>
+    <string>Requerido para guardar tus videos grabados en tu biblioteca de Fotos.</string>
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>

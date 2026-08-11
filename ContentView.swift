@@ -1,4 +1,5 @@
 ﻿import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
@@ -44,6 +45,20 @@ struct ContentView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .alert("Permiso requerido", isPresented: Binding(
+            get: { viewModel.permissionDenied != nil },
+            set: { if !$0 { viewModel.permissionDenied = nil } }
+        )) {
+            Button("Cancelar", role: .cancel) { viewModel.permissionDenied = nil }
+            Button("Abrir Ajustes") {
+                viewModel.permissionDenied = nil
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+        } message: {
+            Text(permissionDeniedMessage)
+        }
         .overlay {
             if let message = viewModel.statusMessage {
                 VStack {
@@ -70,6 +85,17 @@ struct ContentView: View {
         }
         .onChange(of: subscriptionManager.isPremium) { _, isPremium in
             viewModel.setPremium(isPremium)
+        }
+    }
+    
+    private var permissionDeniedMessage: String {
+        switch viewModel.permissionDenied {
+        case .camera:
+            return "Prompter AI necesita acceso a la camara para grabar tu lectura. Puedes habilitarlo en Ajustes > Privacidad > Camara."
+        case .microphone:
+            return "Prompter AI necesita acceso al microfono para capturar el audio. Puedes habilitarlo en Ajustes > Privacidad > Microfono."
+        case nil:
+            return ""
         }
     }
 }

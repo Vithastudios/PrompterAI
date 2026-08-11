@@ -9,21 +9,51 @@ class SubscriptionManager: ObservableObject {
     @Published var errorMessage: String?
     
     private let premiumProductID = "com.vithastudios.premium_lifetime"
+    private let keychainPremiumKey = "premium.entitled"
     private var hasVerified = false
     
+    var onPremiumStateChanged: ((Bool) -> Void)?
+    
+    // Devuelve el premium persistido en Keychain (sin bloquear). Solo es un cache
+    // para arrancar rapido; la autoridad real es StoreKit (entitled).
+    var persistedPremium: Bool {
+        KeychainStore.shared.string(forKey: keychainPremiumKey) == "1"
+    }
+    
     func verifyStatus() async {
+        // Restaurar desde Keychain de forma inmediata si ya estaba comprado.
+        let cached = persistedPremium
+        if cached != isPremium {
+            isPremium = cached
+            onPremiumStateChanged?(cached)
+        }
+        
         guard !hasVerified else { return }
         hasVerified = true
         
+        // Escuchar transacciones en curso (p.ej. en segundo plano).
         Task { [weak self] in
             for await result in Transaction.updates {
                 self?.handleTransaction(result)
             }
         }
         
+        // Autoridad real: recorrer los entitlements verificados por StoreKit.
+        var entitled = false
         for await result in Transaction.currentEntitlements {
-            handleTransaction(result)
+            if case .verified(let transaction) = result {
+                if transaction.productID == premiumProductID {
+                    entitled = true
+                }
+                await transaction.finish()
+            }
         }
+        
+        if !entitled && persistedPremium {
+            // El cache en Keychain ya no coincide con StoreKit: limpiarlo.
+            KeychainStore.shared.remove(forKey: keychainPremiumKey)
+        }
+        setPremium(entitled, productID: entitled ? premiumProductID : nil)
     }
     
     func purchasePremium() async {
@@ -55,6 +85,9 @@ class SubscriptionManager: ObservableObject {
         do {
             try await AppStore.sync()
             errorMessage = nil
+            // Re-verificar entitlements tras restaurar.
+            hasVerified = false
+            await verifyStatus()
         } catch {
             errorMessage = "Error al restaurar: \(error.localizedDescription)"
         }
@@ -73,16 +106,30 @@ class SubscriptionManager: ObservableObject {
         switch verification {
         case .verified(let transaction):
             if transaction.productID == premiumProductID {
-                isPremium = true
-                currentProductID = premiumProductID
-                print("Usuario Premium activado.")
+                setPremium(true, productID: premiumProductID)
             }
             Task {
                 await transaction.finish()
             }
-        case .failed(let error):
-            // Un fallo de verificacion de un producto no debe desactivar premium.
-            print("Transaccion no verificada: \(error.localizedDescription)")
+        case .failed:
+            // Un fallo de verificacion no debe desactivar premium.
+            break
+        }
+    }
+    
+    private func setPremium(_ enabled: Bool, productID: String?) {
+        let hadChange = isPremium != enabled
+        isPremium = enabled
+        currentProductID = productID
+        
+        if enabled {
+            KeychainStore.shared.set("1", forKey: keychainPremiumKey)
+        } else {
+            KeychainStore.shared.remove(forKey: keychainPremiumKey)
+        }
+        
+        if hadChange {
+            onPremiumStateChanged?(enabled)
         }
     }
 }

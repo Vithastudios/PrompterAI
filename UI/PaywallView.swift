@@ -63,6 +63,21 @@ struct PaywallView: View {
                 }
                 .padding(.bottom, 20)
                 
+                // Terminos de Uso (EULA) y Politica de Privacidad: obligatorios
+                // cuando hay compras integradas (guia de App Review 3.1.1).
+                VStack(spacing: 12) {
+                    Link("Terminos de Uso (EULA)", destination: termsURL)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Link("Politica de Privacidad", destination: privacyURL)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text("Compra de por vida (no renovable).")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 10)
+                
                 Button(action: { dismiss() }) {
                     Text("Quiza mas tarde")
                         .font(.caption)
@@ -74,6 +89,14 @@ struct PaywallView: View {
         .task {
             price = await subscriptionManager.fetchPrice()
         }
+    }
+    
+    // Reemplazar por las URLs reales una vez publicadas.
+    private var termsURL: URL {
+        URL(string: "https://www.vithastudios.com/terms")!
+    }
+    private var privacyURL: URL {
+        URL(string: "https://www.vithastudios.com/privacy")
     }
 }
 

@@ -13,6 +13,7 @@ class PrompterViewModel: ObservableObject {
     @Published var fontSize: CGFloat = 32.0
     @Published var textColor: UIColor = .white
     @Published var errorMessage: String?
+    @Published var permissionDenied: DeniedPermission?
     @Published var statusMessage: String?
     @Published var resolutionLabel: String = "1080p30"
     @Published var lastVideoURL: URL?
@@ -119,11 +120,13 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
         
         neuralEngine.loadScript(scriptText)
         
-        videoEngine.setupCamera(previewLayer: preview) { [weak self] success in
+        videoEngine.setupCamera(previewLayer: preview) { [weak self] success, denied in
             guard let self = self else { return }
             
             if success {
                 self.audioEngine.startListening()
+            } else if let denied = denied {
+                self.permissionDenied = denied
             } else {
                 self.errorMessage = "Error al iniciar camara."
             }
@@ -151,6 +154,7 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             if success {
                 self.isRecording = true
                 self.isPlaying = true
+                self.setIdleTimer(enabled: true)
                 
                 let generator = UIImpactFeedbackGenerator(style: .rigid)
                 generator.impactOccurred()
@@ -168,6 +172,7 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             self.isPlaying = false
             self.scrollEngine.setSpeed(0)
             self.saveCurrentPosition()
+            self.setIdleTimer(enabled: false)
             
             guard let url = url else {
                 self.errorMessage = "Fallo al finalizar la grabacion"
@@ -231,18 +236,26 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
             }
         }
     }
-    
     func togglePlayPause() {
         isPlaying.toggle()
         
         if isPlaying {
             scrollEngine.setSpeed(currentSpeed)
             audioEngine.startListening()
+            setIdleTimer(enabled: true)
         } else {
             scrollEngine.setSpeed(0)
             saveCurrentPosition()
+            setIdleTimer(enabled: false)
         }
     }
+    
+    // Mantiene la pantalla encendida mientras se lee/graba (clave en un
+    // teleprompter) y la libera al pausar/detener para no agotar la bateria.
+    private func setIdleTimer(enabled: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = enabled
+    }
+    
     func didStartManualScroll() {
         isManualDragging = true
         scrollEngine.handleManualDragBegan()

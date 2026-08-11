@@ -40,7 +40,7 @@ Xcode genera plantillas. Hay que reemplazarlas con el codigo real:
 
 Arrastrar al proyecto (marcar "Copy items if needed" NO, mejor "Create groups"):
 
-**Compile Sources (20 archivos):**
+**Compile Sources (21 archivos):**
 ```
 PrompterAIApp.swift
 ContentView.swift
@@ -55,6 +55,8 @@ Engines/ScrollEngine.swift
 Engines/NeuralFlowEngine.swift
 Engines/AudioEngine.swift
 Engines/VideoPreset.swift
+Security/SecurityGuard.swift
+Security/KeychainStore.swift
 UI/ViewController.swift
 UI/PaywallView.swift
 UI/ScriptLibraryView.swift
