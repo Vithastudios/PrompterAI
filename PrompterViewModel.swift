@@ -13,6 +13,10 @@ class PrompterViewModel: ObservableObject {
     @Published var fontSize: CGFloat = 32.0
     @Published var textColor: UIColor = .white
     @Published var errorMessage: String?
+    @Published var statusMessage: String?
+    @Published var lastVideoURL: URL?
+    @Published var showScriptLibrary: Bool = false
+    @Published var showSettings: Bool = false
     
     let videoEngine = VideoEngine()
     let audioEngine = AudioEngine()
@@ -125,15 +129,31 @@ func attachUI(textView: UITextView, previewLayer: AVCaptureVideoPreviewLayer) {
     }
     
     private func stopRecording() {
-        videoEngine.stopRecording { [weak self] in
+        videoEngine.stopRecording { [weak self] url in
             guard let self = self else { return }
             
             self.isRecording = false
             self.isPlaying = false
             self.scrollEngine.setSpeed(0)
             
-let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
+            if let url = url {
+                VideoSaver.shared.saveToLibrary(videoURL: url) { ok, message in
+                    if ok {
+                        self.lastVideoURL = url
+                        self.statusMessage = "Video guardado en tu galeria"
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                    } else {
+                        self.errorMessage = message ?? "No se pudo guardar el video."
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.error)
+                    }
+                }
+            } else {
+                self.errorMessage = "Fallo al finalizar la grabacion"
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.error)
+            }
         }
     }
     
@@ -190,6 +210,10 @@ let generator = UINotificationFeedbackGenerator()
     
     func updateFontSize(_ size: CGFloat) {
         fontSize = size
+        textView?.font = UIFont.systemFont(ofSize: size, weight: .semibold)
+    }
+    
+    func applyFontSize(_ size: CGFloat) {
         textView?.font = UIFont.systemFont(ofSize: size, weight: .semibold)
     }
     

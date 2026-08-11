@@ -12,6 +12,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
     
     var onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
     var isRecording: Bool = false
+    private(set) var lastOutputURL: URL?
     private var startTime: CMTime = .invalid
     
     private let sessionQueue = DispatchQueue(label: "com.vithastudios.videoSessionQueue")
@@ -116,6 +117,7 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
                 return
             }
             
+            self.lastOutputURL = outputUrl
             if let output = self.videoOutput,
                let connection = output.connection(with: .video),
                connection.isVideoRotationAngleSupported(90) {
@@ -174,20 +176,25 @@ class VideoEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
         }
     }
     
-    func stopRecording(completion: @escaping () -> Void) {
+    func stopRecording(completion: @escaping (URL?) -> Void) {
         sessionQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
             
             self.isRecording = false
             self.videoInput?.markAsFinished()
             self.audioInput?.markAsFinished()
+            let url = self.lastOutputURL
             
             self.assetWriter?.finishWriting {
+                let finished = self.assetWriter?.status == .completed
                 self.assetWriter = nil
                 self.videoInput = nil
                 self.audioInput = nil
                 self.startTime = .invalid
-                DispatchQueue.main.async { completion() }
+                DispatchQueue.main.async { completion(finished ? url : nil) }
             }
         }
     }

@@ -3,15 +3,26 @@ import AVFoundation
 
 class ViewController: UIViewController {
     
-    let viewModel = PrompterViewModel()
+    let viewModel: PrompterViewModel
     let previewLayer = AVCaptureVideoPreviewLayer()
     let textView = UITextView()
     let gradientMask = CAGradientLayer()
     
     let recordButton = UIButton(type: .custom)
     let playButton = UIButton(type: .custom)
+    let libraryButton = UIButton(type: .custom)
+    let settingsButton = UIButton(type: .custom)
     let progressView = UIView()
     let progressFill = UIView()
+    
+    init(viewModel: PrompterViewModel) {
+        self.viewModel = viewModel
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) no soportado")
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -72,6 +83,22 @@ class ViewController: UIViewController {
         playButton.addTarget(self, action: #selector(togglePlay), for: .touchUpInside)
         view.addSubview(playButton)
         
+        libraryButton.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+        libraryButton.center = CGPoint(x: 60, y: view.bounds.height - 180)
+        libraryButton.setTitle("+", for: .normal)
+        libraryButton.setTitleColor(.white, for: .normal)
+        libraryButton.titleLabel?.font = UIFont.systemFont(ofSize: 32)
+        libraryButton.addTarget(self, action: #selector(openLibrary), for: .touchUpInside)
+        view.addSubview(libraryButton)
+        
+        settingsButton.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+        settingsButton.center = CGPoint(x: 130, y: view.bounds.height - 180)
+        settingsButton.setTitle("A", for: .normal)
+        settingsButton.setTitleColor(.white, for: .normal)
+        settingsButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
+        view.addSubview(settingsButton)
+        
         progressView.frame = CGRect(x: 0, y: view.bounds.height - 20, width: view.bounds.width, height: 2)
         progressView.backgroundColor = UIColor.white.withAlphaComponent(0.3)
         
@@ -98,6 +125,14 @@ class ViewController: UIViewController {
     @objc private func togglePlay() {
         viewModel.togglePlayPause()
         playButton.setTitle(viewModel.isPlaying ? "Pause" : "Play", for: .normal)
+    }
+    
+    @objc private func openLibrary() {
+        viewModel.showScriptLibrary = true
+    }
+    
+    @objc private func openSettings() {
+        viewModel.showSettings = true
     }
 }
 

@@ -56,7 +56,9 @@ class NeuralFlowEngine {
         }
         
         let needsPause = predictPauseNeeded(for: cleanWord)
-        onPauseDetected?(needsPause)
+        DispatchQueue.main.async { [weak self] in
+            self?.onPauseDetected?(needsPause)
+        }
     }
     
     func syncPosition(to index: Int) {
